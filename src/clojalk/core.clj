@@ -4,10 +4,10 @@
 ;; struct definition for Job
 ;; basic task unit
 (defstruct JobSpec :id :ttr :priority :created_at :activated_at :state)
-(defstruct Job :jobspec :cube :body)
+(defstruct Job :jobspec :tube :body)
 
 ;; struct definition for Cube (similar to database in RDBMS)
-(defstruct Cube :name :ready_set :delay_set)
+(defstruct Tube :name :ready_set :delay_set)
 
 ;; struct definition for Session (connection in beanstalkd)
 (defstruct Session :type :use :watches)
@@ -15,8 +15,8 @@
 (defn- priority-comparator [j1 j2]
   (< (:priority (:jobspec j1)) (:priority (:jobspec j2))))
 
-(defn make-cube [name]
-  (struct Cube name 
+(defn make-tube [name]
+  (struct Tube name 
           (ref (sorted-set-by priority-comparator))
           (ref (sorted-set-by priority-comparator))))
 
@@ -37,17 +37,17 @@
 ;;------ clojalk globals -------
 
 (defonce jobs (ref {}))
-(defonce cubes (ref {:default (make-cube "default")}))
+(defonce tubes (ref {:default (make-tube "default")}))
 
 ;;------ clojalk commands ------
 
 (defn put [session priority delay ttr body]
-  (let [cube ((:use session) @cubes)
+  (let [tube ((:use session) @tubes)
         jobspec (make-job priority delay ttr)
-        job (struct Job jobspec (:name cube) body)]
+        job (struct Job jobspec (:name tube) body)]
     (dosync
       (alter jobs assoc (:id jobspec) job)
       (case (:state jobspec)
-        :delay (alter (:delay_set cube) conj job)
-        :ready (alter (:ready_set cube) conj job)))))
+        :delay (alter (:delay_set tube) conj job)
+        :ready (alter (:ready_set tube) conj job)))))
 
