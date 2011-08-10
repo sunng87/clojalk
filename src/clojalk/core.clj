@@ -13,14 +13,12 @@
 (defstruct Session :type :use :watches)
 
 (defn- priority-comparator [j1 j2]
-  (< (:priority j1) (:priority j2)))
+  (< (:priority (:jobspec j1)) (:priority (:jobspec j2))))
 
 (defn make-cube [name]
   (struct Cube name 
-          (sorted-set-by priority-comparator) 
-          (sorted-set-by priority-comparator)))
-
-(def cubes (ref {:default (make-cube "default")}))
+          (ref (sorted-set-by priority-comparator))
+          (ref (sorted-set-by priority-comparator))))
 
 (defonce id-counter (atom 0))
 (defn next-id []
@@ -33,10 +31,23 @@
         state (if (< created_at activated_at) :delay :ready)]
     (struct JobSpec id ttr priority created_at activated_at state)))
 
+(defn open-session [type]
+  (struct Session type :default #{}))
+
+;;------ clojalk globals -------
+
+(defonce jobs (ref {}))
+(defonce cubes (ref {:default (make-cube "default")}))
+
 ;;------ clojalk commands ------
 
 (defn put [session priority delay ttr body]
-  (let [jobspec (make-job priority delay ttr)
-        job (struct Job jobspec (:cube session) body)]
-    ))
+  (let [cube ((:use session) @cubes)
+        jobspec (make-job priority delay ttr)
+        job (struct Job jobspec (:name cube) body)]
+    (dosync
+      (alter jobs assoc (:id jobspec) job)
+      (case (:state jobspec)
+        :delay (alter (:delay_set cube) conj job)
+        :ready (alter (:ready_set cube) conj job)))))
 
