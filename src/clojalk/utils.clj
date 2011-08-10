@@ -7,3 +7,6 @@
   `(let [x# ~x]
     (println "dbg:" '~x "=" x#)
     x#))
+
+(defn not-nil [x]
+  (not (nil? x)))
