@@ -24,7 +24,7 @@
 
 (defonce id-counter (atom 0))
 (defn next-id []
-  (swap! id-counter inc))
+  (swap! id-counter inc)) ;;convert to string
 
 (defn make-job [priority delay ttr tube body]
   (let [id (next-id)
@@ -46,11 +46,13 @@
 (defn put [session priority delay ttr body]
   (let [tube ((:use session) @tubes)
         job (make-job priority delay ttr (:name tube) body)]
-    (dosync
-      (alter jobs assoc (:id job) job)
-      (case (:state job)
-        :delay (alter (:delay_set tube) conj job)
-        :ready (alter (:ready_set tube) conj job)))))
+    (do
+      (dosync
+        (alter jobs assoc (:id job) job)
+        (case (:state job)
+          :delay (alter (:delay_set tube) conj job)
+          :ready (alter (:ready_set tube) conj job)))
+      job)))
 
 (defn reserve [session]
   (let [watchlist (:watches session)
@@ -66,14 +68,28 @@
     (if top-job
       (do
         (dosync 
-          (alter (:ready_set top-job-cube) rest)
+          (alter (:ready_set top-job-cube) disj top-job)
           (alter jobs assoc (:id top-job) updated-top-job))
         updated-top-job))))
 
 (defn use [session tube-name]
   (let [tube-name-kw (keyword tube-name)]
-    (if-not (contains? @tubes tube-name-kw)
-      (dosync
+    (dosync
+      (if-not (contains? @tubes tube-name-kw)
         (alter tubes assoc tube-name-kw (make-tube tube-name))))
     (assoc session :use tube-name-kw)))
+
+(defn delete [session id]
+  (if-let [job (get @jobs id)]
+    (let [tube ((:tube job) @tubes)]
+      (do
+        (dosync
+          (alter jobs dissoc id)
+          (case (:state job)
+            :ready (alter (:ready_set tube) disj job)
+            :delay (alter (:delay_set tube) disj job)
+            () ;; default clause, do nothing
+            ))
+        (assoc job :state :invalid)))))
+
 

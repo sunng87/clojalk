@@ -1,5 +1,6 @@
 (ns clojalk.test.core
   (:use [clojalk.core])
+  (:use [clojalk.utils])
   (:use [clojure.test]))
 
 
@@ -35,3 +36,25 @@
     ;; reserve a job from empty tube
     (let [job (reserve session-e)]
       (is (nil? job)))))
+
+(deftest test-delete
+  (let [session-p (use (open-session :producer) "delete-test")
+        session-w (assoc (open-session :worker) :watches '(:delete-test))
+        ;; make some jobs in the delete-test tube
+        j1 (put session-p 3 0 1000 "neat")
+        j2 (put session-p 4 0 1000 "nice")]
+    
+    ;; reserve and delete a job
+    (let [job (reserve session-w)
+          detached-job (delete session-w (:id job))]
+      (is (= :invalid (:state detached-job)))
+      (is (= 3 (:priority detached-job))))
+    
+    ;; delete 
+    (delete session-w (:id j2))
+    
+    ;; make sure tube is empty
+    (is (empty? @(:ready_set (:delete-test @tubes))))))
+    
+    
+    
