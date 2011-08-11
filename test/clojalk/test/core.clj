@@ -5,17 +5,17 @@
 
 
 (deftest test-put
-  (let [session (open-session :producer)]
+  (let [session (use (open-session :producer) "test-put")]
     (put session 5 0 1000 "")
     (put session 3 0 1002 "")
     (put session 2 100 1000 "")       
     (is (= 2 (count @jobs)))
-    (is (= 2 (count @(:ready_set (:default @tubes)))))
-    (is (= 1 (count @(:delay_set (:default @tubes)))))
-    (is (= 3 (-> @(:ready_set (:default @tubes))
+    (is (= 2 (count @(:ready_set (:test-put @tubes)))))
+    (is (= 1 (count @(:delay_set (:test-put @tubes)))))
+    (is (= 3 (-> @(:ready_set (:test-put @tubes))
                  first
                  :priority)))
-    (is (= :default (-> @(:ready_set (:default @tubes))
+    (is (= :test-put (-> @(:ready_set (:test-put @tubes))
                  first
                  :tube)))))
 
@@ -40,7 +40,7 @@
 
 (deftest test-delete
   (let [session-p (use (open-session :producer) "delete-test")
-        session-w (assoc (open-session :worker) :watch '(:delete-test))
+        session-w (watch (open-session :worker) "delete-test")
         ;; make some jobs in the delete-test tube
         j1 (put session-p 3 0 1000 "neat")
         j2 (put session-p 4 0 1000 "nice")]
