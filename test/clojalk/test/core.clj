@@ -7,10 +7,11 @@
 (deftest test-put
   (let [session (open-session :producer)]
     (put session 5 0 1000 "")
-    (put session 3 0 1002 "")       
+    (put session 3 0 1002 "")
+    (put session 2 100 1000 "")       
     (is (= 2 (count @jobs)))
     (is (= 2 (count @(:ready_set (:default @tubes)))))
-    (is (= 0 (count @(:delay_set (:default @tubes)))))
+    (is (= 1 (count @(:delay_set (:default @tubes)))))
     (is (= 3 (-> @(:ready_set (:default @tubes))
                  first
                  :priority)))
@@ -56,5 +57,19 @@
     ;; make sure tube is empty
     (is (empty? @(:ready_set (:delete-test @tubes))))))
     
+(deftest test-release
+  (let [session-p (use (open-session :producer) "release-test")
+        session-w (assoc (open-session :worker) :watches '(:release-test))
+        ;; make some jobs in the release-test cube
+        j1 (put session-p 3 0 1000 "neat")
+        j2 (put session-p 4 0 1000 "nice")]
     
+    ;; reserve a job then release it
+    (let [job (reserve session-w)]
+      (release session-w (:id job) 5 0)
+      (is (= 2 (count @(:ready_set (:release-test @tubes))))))
     
+    (let [job (reserve session-w)]
+      (release session-w (:id job) 10 100)
+      (is (= 1 (count @(:ready_set (:release-test @tubes)))))
+      (is (= 5 (-> @(:ready_set (:release-test @tubes)) first :priority))))))

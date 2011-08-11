@@ -3,7 +3,7 @@
 
 ;; struct definition for Job
 ;; basic task unit
-(defstruct Job :id :ttr :priority :created_at :deadline_at :state :tube :body :reserver)
+(defstruct Job :id :delay :ttr :priority :created_at :deadline_at :state :tube :body :reserver)
 
 ;; struct definition for Cube (similar to database in RDBMS)
 (defstruct Tube :name :ready_set :delay_set)
@@ -31,7 +31,7 @@
         created_at (current-time)
         activated_at (+ (current-time) delay)
         state (if (< created_at activated_at) :delay :ready)]
-    (struct Job id ttr priority created_at nil state tube body nil)))
+    (struct Job id delay ttr priority created_at nil state tube body nil)))
 
 (defn open-session [type]
   (struct Session type :default #{:default}))
@@ -40,6 +40,8 @@
 
 (defonce jobs (ref {}))
 (defonce tubes (ref {:default (make-tube "default")}))
+(defonce commands (ref {}))
+
 
 ;;------ clojalk commands ------
 
@@ -48,10 +50,11 @@
         job (make-job priority delay ttr (:name tube) body)]
     (do
       (dosync
-        (alter jobs assoc (:id job) job)
         (case (:state job)
           :delay (alter (:delay_set tube) conj job)
-          :ready (alter (:ready_set tube) conj job)))
+          :ready (do
+                   (alter jobs assoc (:id job) job)
+                   (alter (:ready_set tube) conj job))))
       job)))
 
 (defn reserve [session]
@@ -87,9 +90,16 @@
           (alter jobs dissoc id)
           (case (:state job)
             :ready (alter (:ready_set tube) disj job)
-            :delay (alter (:delay_set tube) disj job)
             () ;; default clause, do nothing
             ))
         (assoc job :state :invalid)))))
 
-
+(defn release [session id priority delay]
+  (if-let [job (get @jobs id)]
+    (let [tube ((:tube job) @tubes)
+          updated-job (assoc job :priority priority :delay delay)]
+      (dosync
+        (if (> delay 0)
+          (alter (:delay_set tube) conj (assoc updated-job :state :delay)) ;; delayed 
+          (alter (:ready_set tube) conj (assoc updated-job :state :ready)))))))
+  

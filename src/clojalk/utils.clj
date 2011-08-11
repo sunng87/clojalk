@@ -8,5 +8,8 @@
     (println "dbg:" '~x "=" x#)
     x#))
 
+;;------ utility functions ------------
 (defn not-nil [x]
   (not (nil? x)))
+
+(defn uppercase [#^String s] (.toUpperCase s))
