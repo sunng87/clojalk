@@ -73,3 +73,27 @@
       (release session-w (:id job) 10 100)
       (is (= 1 (count @(:ready_set (:release-test @tubes)))))
       (is (= 5 (-> @(:ready_set (:release-test @tubes)) first :priority))))))
+
+(defn- sleep [seconds]
+  (Thread/sleep (* 1000 seconds)))
+
+(deftest test-update-delay-task
+  (let [session-p (use (open-session :producer) "delay-task-test")]
+    ;; add some delayed job 
+    (put session-p 3 1 1000 "neat")
+    (put session-p 4 2 1000 "nice")
+    (put session-p 5 10 1000 "cute")
+    (put session-p 8 0 1000 "")
+    
+    (is (= 3 (count @(:delay_set (:delay-task-test @tubes)))))
+    (is (= 1 (count @(:ready_set (:delay-task-test @tubes)))))
+    
+    ;; sleep 
+    (sleep 3)
+    
+    ;; update tasks
+    (update-delay-job-task)
+    
+    (is (= 1 (count @(:delay_set (:delay-task-test @tubes)))))
+    (is (= 3 (count @(:ready_set (:delay-task-test @tubes)))))))
+

@@ -20,7 +20,7 @@
 (defn make-tube [name]
   (struct Tube (keyword name)
           (ref (sorted-set-by priority-comparator))
-          (ref (sorted-set-by priority-comparator))))
+          (ref #{})))
 
 (defonce id-counter (atom 0))
 (defn next-id []
@@ -103,3 +103,16 @@
           (alter (:delay_set tube) conj (assoc updated-job :state :delay)) ;; delayed 
           (alter (:ready_set tube) conj (assoc updated-job :state :ready)))))))
   
+;; ------- scheduled tasks ----------
+(defn- update-delay-job-for-tube [now tube]
+  (let [ready-jobs (filter #(< (+ (:created_at %) (* (:delay %) 1000)) now) @(:delay_set tube))
+        updated-jobs (map #(assoc % :state :ready) ready-jobs)]
+    (if-not (empty? updated-jobs)
+      (dosync
+        (alter (:ready_set tube) conj-all updated-jobs)
+        (alter (:delay_set tube) disj-all ready-jobs)
+        (alter jobs merge (zipmap (map #(:id %) updated-jobs) updated-jobs))))))
+
+(defn update-delay-job-task []
+  (doseq [tube (vals @tubes)] (update-delay-job-for-tube (current-time) tube)))
+
