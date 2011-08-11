@@ -11,16 +11,22 @@
 ;; struct definition for Session (connection in beanstalkd)
 (defstruct Session :type :use :watches)
 
-(defn- priority-comparator [j1 j2]
+(defn- job-comparator [field j1 j2]
   (cond 
-    (< (:priority j1) (:priority j2)) -1
-    (> (:priority j1) (:priority j2)) 1
+    (< (field j1) (field j2)) -1
+    (> (field j1) (field j2)) 1
     :else (< (:id j1) (:id j2))))
+
+(def priority-comparator
+  (partial job-comparator :priority))
+
+(def delay-comparator
+  (partial job-comparator :delay))
 
 (defn make-tube [name]
   (struct Tube (keyword name)
           (ref (sorted-set-by priority-comparator))
-          (ref #{})))
+          (ref (sorted-set-by delay-comparator))))
 
 (defonce id-counter (atom 0))
 (defn next-id []
@@ -42,7 +48,6 @@
 (defonce tubes (ref {:default (make-tube "default")}))
 (defonce commands (ref {}))
 
-
 ;;------ clojalk commands ------
 
 (defn put [session priority delay ttr body]
@@ -57,11 +62,23 @@
                    (alter (:ready_set tube) conj job))))
       job)))
 
-(defn reserve [session]
+(defn peek [session id]
+  (get @jobs id))
+
+(defn peek-ready [session]
   (let [watchlist (:watches session)
         watch-tubes (filter not-nil (map #(get @tubes %) watchlist))
-        top-jobs (filter not-nil (map #(first @(:ready_set %)) watch-tubes))
-        top-job (first (apply sorted-set-by (conj top-jobs priority-comparator)))
+        top-jobs (filter not-nil (map #(first @(:ready_set %)) watch-tubes))]
+    (first (apply sorted-set-by (conj top-jobs priority-comparator)))))
+
+(defn peek-delay [session]
+  (let [watchlist (:watches session)
+        watch-tubes (filter not-nil (map #(get @tubes %) watchlist))
+        top-jobs (filter not-nil (map #(first @(:delay_set %)) watch-tubes))]
+    (first (apply sorted-set-by (conj top-jobs delay-comparator)))))
+
+(defn reserve [session]
+  (let [top-job (peek-ready session)
         updated-top-job (if top-job 
                           (assoc top-job
                                  :state :reserved

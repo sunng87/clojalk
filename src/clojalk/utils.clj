@@ -21,3 +21,6 @@
 (defn disj-all [x s]
   "disjoin a sequence from x"
   (apply disj x s))
+
+(defn as-int [s]
+  (Integer/valueOf s))

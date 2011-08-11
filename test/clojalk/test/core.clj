@@ -97,3 +97,27 @@
     (is (= 1 (count @(:delay_set (:delay-task-test @tubes)))))
     (is (= 3 (count @(:ready_set (:delay-task-test @tubes)))))))
 
+(deftest test-peek
+  (let [session-p (use (open-session :producer) "peek-test")
+        session-w (assoc (open-session :worker) :watches '(:peek-test))
+        j1 (put session-p 9 0 100 "neat")
+        j2 (put session-p 8 10 100 "nice")]
+    (is (= "neat" (:body (peek session-w (:id j1)))))
+    (is (nil? (peek session-w (:id j2)))) ;;delayed job cannot be found with peek
+    (is (nil? (peek session-w 1001)))))
+
+(deftest test-peek-ready
+   (let [session-p (use (open-session :producer) "peek-ready-test")
+         session-w (assoc (open-session :worker) :watches '(:peek-ready-test))]
+     (put session-p 9 0 100 "neat")
+     (put session-p 10 0 100 "cute")
+     (put session-p 8 10 100 "nice")
+     (is (= "neat" (:body (peek-ready session-w))))))
+
+(deftest test-peek-delay
+   (let [session-p (use (open-session :producer) "peek-delay-test")
+         session-w (assoc (open-session :worker) :watches '(:peek-delay-test))]
+     (put session-p 9 0 100 "neat")
+     (put session-p 8 10 100 "nice")
+     (put session-p 8 20 100 "cute")
+     (is (= "nice" (:body (peek-delay session-w))))))
