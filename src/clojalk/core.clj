@@ -9,7 +9,7 @@
 (defstruct Tube :name :ready_set :delay_set)
 
 ;; struct definition for Session (connection in beanstalkd)
-(defstruct Session :type :use :watches)
+(defstruct Session :type :use :watch)
 
 (defn- job-comparator [field j1 j2]
   (cond 
@@ -66,13 +66,13 @@
   (get @jobs id))
 
 (defn peek-ready [session]
-  (let [watchlist (:watches session)
+  (let [watchlist (:watch session)
         watch-tubes (filter not-nil (map #(get @tubes %) watchlist))
         top-jobs (filter not-nil (map #(first @(:ready_set %)) watch-tubes))]
     (first (apply sorted-set-by (conj top-jobs priority-comparator)))))
 
 (defn peek-delay [session]
-  (let [watchlist (:watches session)
+  (let [watchlist (:watch session)
         watch-tubes (filter not-nil (map #(get @tubes %) watchlist))
         top-jobs (filter not-nil (map #(first @(:delay_set %)) watch-tubes))]
     (first (apply sorted-set-by (conj top-jobs delay-comparator)))))
@@ -119,6 +119,13 @@
         (if (> delay 0)
           (alter (:delay_set tube) conj (assoc updated-job :state :delay)) ;; delayed 
           (alter (:ready_set tube) conj (assoc updated-job :state :ready)))))))
+
+(defn watch [session tube-name]
+  (let [tube-name-kw (keyword tube-name)]
+    (dosync
+      (if-not (contains? @tubes tube-name-kw)
+        (alter tubes assoc tube-name-kw (make-tube tube-name))))
+    (assoc session :watch (conj tube-name-kw (:watch session)))))
   
 ;; ------- scheduled tasks ----------
 (defn- update-delay-job-for-tube [now tube]

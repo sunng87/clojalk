@@ -21,8 +21,8 @@
 
 (deftest test-reserve
   (let [session-p (use (open-session :producer) "test")
-        session-t (assoc (open-session :worker) :watches '(:test))
-        session-e (assoc (open-session :worker) :watches '(:empty))]
+        session-t (watch (open-session :worker) "test")
+        session-e (watch (open-session :worker) "empty")]
     ;; make some jobs in test tube
     (put session-p 3 0 1000 "")
     (put session-p 10 0 100 "")
@@ -40,7 +40,7 @@
 
 (deftest test-delete
   (let [session-p (use (open-session :producer) "delete-test")
-        session-w (assoc (open-session :worker) :watches '(:delete-test))
+        session-w (assoc (open-session :worker) :watch '(:delete-test))
         ;; make some jobs in the delete-test tube
         j1 (put session-p 3 0 1000 "neat")
         j2 (put session-p 4 0 1000 "nice")]
@@ -59,7 +59,7 @@
     
 (deftest test-release
   (let [session-p (use (open-session :producer) "release-test")
-        session-w (assoc (open-session :worker) :watches '(:release-test))
+        session-w (watch (open-session :worker) "release-test")
         ;; make some jobs in the release-test cube
         j1 (put session-p 3 0 1000 "neat")
         j2 (put session-p 4 0 1000 "nice")]
@@ -99,7 +99,7 @@
 
 (deftest test-peek
   (let [session-p (use (open-session :producer) "peek-test")
-        session-w (assoc (open-session :worker) :watches '(:peek-test))
+        session-w (watch (open-session :worker) "peek-test")
         j1 (put session-p 9 0 100 "neat")
         j2 (put session-p 8 10 100 "nice")]
     (is (= "neat" (:body (peek session-w (:id j1)))))
@@ -108,7 +108,7 @@
 
 (deftest test-peek-ready
    (let [session-p (use (open-session :producer) "peek-ready-test")
-         session-w (assoc (open-session :worker) :watches '(:peek-ready-test))]
+         session-w (watch (open-session :worker) "peek-ready-test")]
      (put session-p 9 0 100 "neat")
      (put session-p 10 0 100 "cute")
      (put session-p 8 10 100 "nice")
@@ -116,7 +116,7 @@
 
 (deftest test-peek-delay
    (let [session-p (use (open-session :producer) "peek-delay-test")
-         session-w (assoc (open-session :worker) :watches '(:peek-delay-test))]
+         session-w (watch (open-session :worker) "peek-delay-test")]
      (put session-p 9 0 100 "neat")
      (put session-p 8 10 100 "nice")
      (put session-p 8 20 100 "cute")
