@@ -127,7 +127,18 @@
         (alter tubes assoc tube-name-kw (make-tube tube-name))))
     (assoc session :watch (conj (:watch session) tube-name-kw))))
 
+(defn ignore [session tube-name]
+  (let [tube-name-kw (keyword tube-name)]
+    (assoc session :watch (disj (:watch session) tube-name-kw))))
 
+(defn list-tubes [session]
+  (keys @tubes))
+
+(defn list-tube-used [session]
+  (:use session))
+
+(defn list-tubes-watched [session]
+  (:watch session))
   
 ;; ------- scheduled tasks ----------
 (defn- update-delay-job-for-tube [now tube]
