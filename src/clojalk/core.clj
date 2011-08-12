@@ -202,3 +202,13 @@
 (defn update-delay-job-task []
   (doseq [tube (vals @tubes)] (update-delay-job-for-tube (current-time) tube)))
 
+(defn update-expired-job-task []
+  (dosync
+    (let [reserved-jobs (filter #(= :reserved (:state %)) (vals @jobs))
+          now (current-time)
+          expired-jobs (filter #(> now (:deadline_at %)) reserved-jobs)]
+      (doseq [job expired-jobs]
+        (let [tube ((:tube job) @tubes)]
+          (alter jobs assoc (:id job) (assoc job :state :ready))
+          (alter (:ready_set tube) conj (assoc job :state :ready)))))))
+  

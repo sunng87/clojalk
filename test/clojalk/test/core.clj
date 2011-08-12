@@ -184,4 +184,26 @@
     (sleep 0.3)
     (is (> (:deadline_at (touch session-w (:id j0_))) (:deadline_at j0_)))))
 
-
+(deftest test-update-expired-task
+  (let [session-p (use (open-session :producer) "expire-task-test")
+        session-w (watch (open-session :worker) "expire-task-test")]
+    ;;make some jobs in the tube
+    (put session-p 8 0 1 "nice")
+    (put session-p 9 0 1 "neat")
+    (put session-p 10 0 1 "cute")
+    (put session-p 9 0 10 "geek")
+    
+    (is (= 4 (count @(:ready_set (:expire-task-test @tubes)))))
+    
+    ;;reserve some jobs from the tube
+    (reserve session-w)
+    (reserve session-w)
+    (reserve session-w)
+    
+    (is (= 1 (count @(:ready_set (:expire-task-test @tubes)))))
+    
+    ;;wait for expire
+    (sleep 1.5)
+    (update-expired-job-task)
+    
+    (is (= 3 (count @(:ready_set (:expire-task-test @tubes)))))))
