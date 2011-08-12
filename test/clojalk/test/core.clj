@@ -174,3 +174,14 @@
     (is (= 1 (count @(:delay_set (:kick-test @tubes)))))
     
     (is (every? #(= :ready (:state %)) @(:ready_set (:kick-test @tubes))))))
+
+(deftest test-touch
+  (let [session-p (use (open-session :producer) "touch-test")
+        session-w (watch (open-session :worker) "touch-test")
+        j0 (put session-p 5 0 100 "nice")
+        j0_ (reserve session-w)]
+    
+    (sleep 0.3)
+    (is (> (:deadline_at (touch session-w (:id j0_))) (:deadline_at j0_)))))
+
+

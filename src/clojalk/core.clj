@@ -161,6 +161,15 @@
           (alter (:ready_set tube) conj-all updated-kicked)
           (ref-set (:buried_list tube) remained))))))
 
+(defn touch [session id]
+  (let [job (get @jobs id)
+        updated-job (assoc job :deadline_at (+ (current-time) (* (:ttr job) 1000)))]
+    (dosync
+      (if (= :reserved (:state updated-job)) ;; only reserved jobs could be touched
+        (do
+          (alter jobs assoc (:id updated-job) updated-job)
+          updated-job)))))
+
 (defn watch [session tube-name]
   (let [tube-name-kw (keyword tube-name)]
     (dosync
