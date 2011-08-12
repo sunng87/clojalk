@@ -1,4 +1,5 @@
 (ns clojalk.core
+  (:refer-clojure :exclude [use peek])
   (:use [clojalk.utils]))
 
 ;; struct definition for Job
@@ -139,6 +140,27 @@
           (alter jobs assoc (:id updated-job) updated-job))
         updated-job))))
 
+;; for USED tube only
+(defn kick [session bound]
+  (let [tube ((:use session) @tubes)]
+    (dosync
+      (if (empty? @(:buried_list tube))
+        ;; no jobs buried, kick from delay set
+        (let [kicked (take bound @(:delay_set tube))
+              updated-kicked (map #(assoc % :state :ready) kicked)
+              remained (drop bound @(:delay_set tube))
+              remained-set (apply sorted-set-by delay-comparator remained)]
+          (alter (:ready_set tube) conj-all updated-kicked)
+          (ref-set (:delay_set tube) remained-set)
+          (alter jobs merge (zipmap (map #(:id %) updated-kicked) updated-kicked)))
+        
+        ;; kick at most bound jobs from buried list
+        (let [kicked (take bound @(:buried_list tube))
+              updated-kicked (map #(assoc % :state :ready) kicked)
+              remained (vec (drop bound @(:buried_list tube)))]
+          (alter (:ready_set tube) conj-all updated-kicked)
+          (ref-set (:buried_list tube) remained))))))
+
 (defn watch [session tube-name]
   (let [tube-name-kw (keyword tube-name)]
     (dosync
@@ -163,11 +185,10 @@
 (defn- update-delay-job-for-tube [now tube]
   (let [ready-jobs (filter #(< (+ (:created_at %) (* (:delay %) 1000)) now) @(:delay_set tube))
         updated-jobs (map #(assoc % :state :ready) ready-jobs)]
-    (if-not (empty? updated-jobs)
-      (dosync
-        (alter (:ready_set tube) conj-all updated-jobs)
-        (alter (:delay_set tube) disj-all ready-jobs)
-        (alter jobs merge (zipmap (map #(:id %) updated-jobs) updated-jobs))))))
+    (dosync
+      (alter (:ready_set tube) conj-all updated-jobs)
+      (alter (:delay_set tube) disj-all ready-jobs)
+      (alter jobs merge (zipmap (map #(:id %) updated-jobs) updated-jobs)))))
 
 (defn update-delay-job-task []
   (doseq [tube (vals @tubes)] (update-delay-job-for-tube (current-time) tube)))

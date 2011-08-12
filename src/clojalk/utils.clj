@@ -16,11 +16,15 @@
 
 (defn conj-all [x s]
   "conject a sequence s into x"
-  (apply conj x s))
+  (if-not (empty? s)
+    (apply conj x s)
+    x))
 
 (defn disj-all [x s]
   "disjoin a sequence from x"
-  (apply disj x s))
+  (if-not (empty? s)
+    (apply disj x s)
+    x))
 
 (defn as-int [s]
   (Integer/valueOf s))

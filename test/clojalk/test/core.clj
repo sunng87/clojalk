@@ -1,4 +1,5 @@
 (ns clojalk.test.core
+  (:refer-clojure :exclude [use peek])
   (:use [clojalk.core])
   (:use [clojalk.utils])
   (:use [clojure.test]))
@@ -135,4 +136,41 @@
     (is (= 10 (:priority (first @(:buried_list (:bury-test @tubes))))))
     (is (= :buried (:state (first @(:buried_list (:bury-test @tubes))))))))
 
-
+(deftest test-kick
+  (let [session-p (use (open-session :producer) "kick-test")
+        j0 (put session-p 10 0 100 "neat")
+        j1 (put session-p 10 0 100 "nice")]
+        
+    ;; kick empty
+    (kick session-p 100)
+    
+    (is (= 0 (count @(:buried_list (:kick-test @tubes)))))
+    (is (= 2 (count @(:ready_set (:kick-test @tubes)))))
+    (is (= 0 (count @(:delay_set (:kick-test @tubes)))))
+    
+    ;; make some jobs, ready and delayed
+    (put session-p 20 0 100 "cute")
+    (put session-p 20 20 100 "peak")
+    (put session-p 25 20 100 "geek")
+    
+    ;; bury some jobs
+    (bury session-p (:id j0) 10)
+    (bury session-p (:id j1) 10)
+    
+    (is (= 2 (count @(:buried_list (:kick-test @tubes)))))
+    (is (= 1 (count @(:ready_set (:kick-test @tubes)))))
+    (is (= 2 (count @(:delay_set (:kick-test @tubes)))))
+    
+    (kick session-p 100)
+    
+    (is (= 0 (count @(:buried_list (:kick-test @tubes)))))
+    (is (= 3 (count @(:ready_set (:kick-test @tubes)))))
+    (is (= 2 (count @(:delay_set (:kick-test @tubes)))))
+    
+    (kick session-p 1)
+    
+    (is (= 0 (count @(:buried_list (:kick-test @tubes)))))
+    (is (= 4 (count @(:ready_set (:kick-test @tubes)))))
+    (is (= 1 (count @(:delay_set (:kick-test @tubes)))))
+    
+    (is (every? #(= :ready (:state %)) @(:ready_set (:kick-test @tubes))))))
