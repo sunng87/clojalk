@@ -32,7 +32,7 @@
 
 (defonce id-counter (atom 0))
 (defn next-id []
-  (swap! id-counter inc)) ;;convert to string
+  (swap! id-counter inc)) 
 
 (defn make-job [priority delay ttr tube body]
   (let [id (next-id)
