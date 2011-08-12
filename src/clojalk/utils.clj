@@ -24,3 +24,6 @@
 
 (defn as-int [s]
   (Integer/valueOf s))
+
+(defn remove-item [s i]
+  (remove (fn [x] (= x i)) s))

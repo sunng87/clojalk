@@ -6,7 +6,7 @@
 (defstruct Job :id :delay :ttr :priority :created_at :deadline_at :state :tube :body :reserver)
 
 ;; struct definition for Cube (similar to database in RDBMS)
-(defstruct Tube :name :ready_set :delay_set)
+(defstruct Tube :name :ready_set :delay_set :buried_list)
 
 ;; struct definition for Session (connection in beanstalkd)
 (defstruct Session :type :use :watch)
@@ -26,7 +26,8 @@
 (defn make-tube [name]
   (struct Tube (keyword name)
           (ref (sorted-set-by priority-comparator))
-          (ref (sorted-set-by delay-comparator))))
+          (ref (sorted-set-by delay-comparator))
+          (ref [])))
 
 (defonce id-counter (atom 0))
 (defn next-id []
@@ -36,7 +37,7 @@
   (let [id (next-id)
         created_at (current-time)
         activated_at (+ (current-time) delay)
-        state (if (< created_at activated_at) :delay :ready)]
+        state (if (< created_at activated_at) :delayed :ready)]
     (struct Job id delay ttr priority created_at nil state tube body nil)))
 
 (defn open-session [type]
@@ -56,7 +57,7 @@
     (do
       (dosync
         (case (:state job)
-          :delay (alter (:delay_set tube) conj job)
+          :delayed (alter (:delay_set tube) conj job)
           :ready (do
                    (alter jobs assoc (:id job) job)
                    (alter (:ready_set tube) conj job))))
@@ -65,20 +66,24 @@
 (defn peek [session id]
   (get @jobs id))
 
+;; peek-* are producer tasks, peek job from current USED tubes (not watches)
 (defn peek-ready [session]
-  (let [watchlist (:watch session)
-        watch-tubes (filter not-nil (map #(get @tubes %) watchlist))
-        top-jobs (filter not-nil (map #(first @(:ready_set %)) watch-tubes))]
-    (first (apply sorted-set-by (conj top-jobs priority-comparator)))))
+  (let [tube ((:use session) @tubes)]
+    (first @(:ready_set tube))))
 
-(defn peek-delay [session]
-  (let [watchlist (:watch session)
-        watch-tubes (filter not-nil (map #(get @tubes %) watchlist))
-        top-jobs (filter not-nil (map #(first @(:delay_set %)) watch-tubes))]
-    (first (apply sorted-set-by (conj top-jobs delay-comparator)))))
+(defn peek-delayed [session]
+  (let [tube ((:use session) @tubes)]
+    (first @(:delay_set tube))))
+
+(defn peek-buried [session]
+  (let [tube ((:use session) @tubes)]
+    (first @(:buried_list tube))))
 
 (defn reserve [session]
-  (let [top-job (peek-ready session)
+  (let [watchlist (:watch session)
+        watch-tubes (filter not-nil (map #(get @tubes %) watchlist))
+        top-jobs (filter not-nil (map #(first @(:ready_set %)) watch-tubes))
+        top-job (first (apply sorted-set-by (conj top-jobs priority-comparator)))
         updated-top-job (if top-job 
                           (assoc top-job
                                  :state :reserved
@@ -107,6 +112,7 @@
           (alter jobs dissoc id)
           (case (:state job)
             :ready (alter (:ready_set tube) disj job)
+            :buried (alter (:buried_list tube) (fn [v i] (vec (remove-item v i))) job)
             () ;; default clause, do nothing
             ))
         (assoc job :state :invalid)))))
@@ -117,8 +123,21 @@
           updated-job (assoc job :priority priority :delay delay)]
       (dosync
         (if (> delay 0)
-          (alter (:delay_set tube) conj (assoc updated-job :state :delay)) ;; delayed 
+          (alter (:delay_set tube) conj (assoc updated-job :state :delayed)) ;; delayed 
           (alter (:ready_set tube) conj (assoc updated-job :state :ready)))))))
+
+(defn bury [session id priority]
+  (if-let [job (get @jobs id)]
+    (let [tube ((:tube job) @tubes)
+          updated-job (assoc job :state :buried :priority priority)]
+      (do
+        (dosync
+          ;; remove the job from ready_set and append it into buried_list
+          ;; the job still can be found from jobs dictionary (for delete)
+          (alter (:ready_set tube) disj job) ;;for reserved job, nothing done in this operation
+          (alter (:buried_list tube) conj updated-job)
+          (alter jobs assoc (:id updated-job) updated-job))
+        updated-job))))
 
 (defn watch [session tube-name]
   (let [tube-name-kw (keyword tube-name)]

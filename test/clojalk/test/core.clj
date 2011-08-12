@@ -8,8 +8,7 @@
   (let [session (use (open-session :producer) "test-put")]
     (put session 5 0 1000 "")
     (put session 3 0 1002 "")
-    (put session 2 100 1000 "")       
-    (is (= 2 (count @jobs)))
+    (put session 2 100 1000 "")
     (is (= 2 (count @(:ready_set (:test-put @tubes)))))
     (is (= 1 (count @(:delay_set (:test-put @tubes)))))
     (is (= 3 (-> @(:ready_set (:test-put @tubes))
@@ -43,7 +42,8 @@
         session-w (watch (open-session :worker) "delete-test")
         ;; make some jobs in the delete-test tube
         j1 (put session-p 3 0 1000 "neat")
-        j2 (put session-p 4 0 1000 "nice")]
+        j2 (put session-p 4 0 1000 "nice")
+        j3 (put session-p 4 0 1000 "cute")]
     
     ;; reserve and delete a job
     (let [job (reserve session-w)
@@ -51,9 +51,13 @@
       (is (= :invalid (:state detached-job)))
       (is (= 3 (:priority detached-job))))
     
-    ;; delete 
-    (delete session-w (:id j2))
+    ;; bury and delete a job
+    (let [job (bury session-w (:id j3) 10)
+          detached-job (delete session-w (:id job))]
+      (is (empty? @(:buried_list (:delete-test @tubes)))))
     
+    ;; delete a ready job
+    (delete session-w (:id j2))
     ;; make sure tube is empty
     (is (empty? @(:ready_set (:delete-test @tubes))))))
     
@@ -99,25 +103,36 @@
 
 (deftest test-peek
   (let [session-p (use (open-session :producer) "peek-test")
-        session-w (watch (open-session :worker) "peek-test")
         j1 (put session-p 9 0 100 "neat")
         j2 (put session-p 8 10 100 "nice")]
-    (is (= "neat" (:body (peek session-w (:id j1)))))
-    (is (nil? (peek session-w (:id j2)))) ;;delayed job cannot be found with peek
-    (is (nil? (peek session-w 1001)))))
+    (is (= "neat" (:body (peek session-p (:id j1)))))
+    (is (nil? (peek session-p (:id j2)))) ;;delayed job cannot be found with peek
+    (is (nil? (peek session-p 1001)))))
 
 (deftest test-peek-ready
-   (let [session-p (use (open-session :producer) "peek-ready-test")
-         session-w (watch (open-session :worker) "peek-ready-test")]
-     (put session-p 9 0 100 "neat")
-     (put session-p 10 0 100 "cute")
-     (put session-p 8 10 100 "nice")
-     (is (= "neat" (:body (peek-ready session-w))))))
+  (let [session-p (use (open-session :producer) "peek-ready-test")]
+    (put session-p 9 0 100 "neat")
+    (put session-p 10 0 100 "cute")
+    (put session-p 8 10 100 "nice")
+    (is (= "neat" (:body (peek-ready session-p))))))
 
-(deftest test-peek-delay
-   (let [session-p (use (open-session :producer) "peek-delay-test")
-         session-w (watch (open-session :worker) "peek-delay-test")]
-     (put session-p 9 0 100 "neat")
-     (put session-p 8 10 100 "nice")
-     (put session-p 8 20 100 "cute")
-     (is (= "nice" (:body (peek-delay session-w))))))
+(deftest test-peek-delayed
+  (let [session-p (use (open-session :producer) "peek-delayed-test")]
+    (put session-p 9 0 100 "neat")
+    (put session-p 8 10 100 "nice")
+    (put session-p 8 20 100 "cute")
+    (is (= "nice" (:body (peek-delayed session-p))))))
+
+(deftest test-bury
+  (let [session-p (use (open-session :producer) "bury-test")
+        session-w (watch (open-session :worker) "buty-test")
+        j0 (put session-p 5 0 100 "nice")]
+    
+    ;; bury j0
+    (bury session-w (:id j0) 10)
+    
+    (is (= 1 (count @(:buried_list (:bury-test @tubes)))))
+    (is (= 10 (:priority (first @(:buried_list (:bury-test @tubes))))))
+    (is (= :buried (:state (first @(:buried_list (:bury-test @tubes))))))))
+
+
