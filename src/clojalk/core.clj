@@ -7,10 +7,11 @@
 (defstruct Job :id :delay :ttr :priority :created_at :deadline_at :state :tube :body :reserver)
 
 ;; struct definition for Cube (similar to database in RDBMS)
-(defstruct Tube :name :ready_set :delay_set :buried_list)
+(defstruct Tube :name :ready_set :delay_set :buried_list 
+  :waiting_list :paused :pause_deadline)
 
 ;; struct definition for Session (connection in beanstalkd)
-(defstruct Session :type :use :watch)
+(defstruct Session :type :use :watch :deadline_at)
 
 (defn- job-comparator [field j1 j2]
   (cond 
@@ -25,10 +26,13 @@
   (partial job-comparator :delay))
 
 (defn make-tube [name]
-  (struct Tube (keyword name)
-          (ref (sorted-set-by priority-comparator))
-          (ref (sorted-set-by delay-comparator))
-          (ref [])))
+  (struct Tube (keyword name) ; name
+          (ref (sorted-set-by priority-comparator)) ; ready_set
+          (ref (sorted-set-by delay-comparator)) ; delay_set
+          (ref []) ; buried_list
+          (ref []) ; waiting queue
+          (ref false) ; paused state
+          (ref -1))) ; pause timeout
 
 (defonce id-counter (atom 0))
 (defn next-id []
@@ -42,7 +46,7 @@
     (struct Job id delay ttr priority created_at nil state tube body nil)))
 
 (defn open-session [type]
-  (struct Session type :default #{:default}))
+  (struct Session type :default #{:default} nil))
 
 ;;------ clojalk globals -------
 
@@ -189,6 +193,13 @@
 
 (defn list-tubes-watched [session]
   (:watch session))
+
+(defn pause-tube [session id timeout]
+  (let [tube ((keyword id) @tubes)]
+    (dosync
+      (ref-set (:paused tube) true)
+      (ref-set (:pause_deadline tube) (+ timeout (current-time)))
+      (alter tubes assoc (:name tube) tube))))
   
 ;; ------- scheduled tasks ----------
 (defn- update-delay-job-for-tube [now tube]
@@ -212,3 +223,14 @@
           (alter jobs assoc (:id job) (assoc job :state :ready))
           (alter (:ready_set tube) conj (assoc job :state :ready)))))))
   
+(defn update-paused-tube-task []
+  (dosync
+    (let [all-tubes (vals @tubes)
+          paused-tubes (filter #(true? @(:paused %)) all-tubes)
+          now (current-time)
+          expired-tubes (filter #(> now @(:pause_deadline %)) paused-tubes)]
+      (doseq [t expired-tubes]
+        (do 
+          (ref-set (:paused t) false)
+          (alter tubes assoc (:name t) t))))))
+
