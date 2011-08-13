@@ -11,7 +11,7 @@
   :waiting_list :paused :pause_deadline)
 
 ;; struct definition for Session (connection in beanstalkd)
-(defstruct Session :type :use :watch :deadline_at :incoming_job)
+(defstruct Session :type :use :watch :deadline_at :state :incoming_job)
 
 (defn- job-comparator [field j1 j2]
   (cond 
@@ -40,13 +40,14 @@
 
 (defn make-job [priority delay ttr tube body]
   (let [id (next-id)
-        created_at (current-time)
-        activated_at (+ (current-time) delay)
+        now (current-time)
+        created_at now
+        activated_at (+ now delay)
         state (if (< created_at activated_at) :delayed :ready)]
     (struct Job id delay ttr priority created_at nil state tube body nil)))
 
 (defn open-session [type]
-  (ref (struct Session type :default #{:default} nil)))
+  (ref (struct Session type :default #{:default} nil nil)))
 
 ;;------ clojalk globals -------
 
@@ -66,15 +67,37 @@
   (let [watch-tubes (filter #(contains? (:watch @session) (:name %)) (vals @tubes))]
     (doseq [tube watch-tubes]
       (alter (:waiting_list tube) conj session)
+      (alter session assoc :state :waiting)
       (alter tubes assoc (:name tube) tube))))
 
 (defn- dequeue-waiting-session [session]
   (let [watch-tubes (filter #(contains? (:watch @session) (:name %)) (vals @tubes))]
     (doseq [tube watch-tubes]
       (alter (:waiting_list tube) remove-item session)
+      (alter session assoc :state :working)
       (alter tubes assoc (:name tube) tube))))
 
+(defn- reserve-job [session job]
+  (let [tube ((:tube job) @tubes)
+        updated-top-job (assoc job
+                               :state :reserved
+                               :reserver session
+                               :deadline_at (+ (current-time) (* (:ttr job) 1000)))]
+    (do
+      (alter (:ready_set tube) disj job)
+      (alter jobs assoc (:id job) updated-top-job)
+      (dequeue-waiting-session session)
+      (alter session assoc :incoming_job updated-top-job)
+      updated-top-job)))
 
+(defn- set-job-as-ready [job]
+  (let [tube ((:tube job) @tubes)]
+    (do
+      (alter jobs assoc (:id job) job)
+      (alter (:ready_set tube) conj job)
+      (let [tube ((:tube job) @tubes)]
+        (if-let [s (first @(:waiting_list tube))]
+          (reserve-job s job))))))
 
 ;;------ clojalk commands ------
 
@@ -85,9 +108,7 @@
       (dosync
         (case (:state job)
           :delayed (alter (:delay_set tube) conj job)
-          :ready (do
-                   (alter jobs assoc (:id job) job)
-                   (alter (:ready_set tube) conj job))))
+          :ready (set-job-as-ready job)))
       job)))
 
 (defn peek [session id]
@@ -110,17 +131,7 @@
   (dosync
     (enqueue-waiting-session session)
     (if-let [top-job (top-ready-job session)]
-      (let [updated-top-job (if top-job 
-                              (assoc top-job
-                                     :state :reserved
-                                     :reserver session
-                                     :deadline_at (+ (current-time) (* (:ttr top-job) 1000))))
-            top-job-tube (and top-job (get @tubes (:tube top-job)))]
-        (do
-          (alter (:ready_set top-job-tube) disj top-job)
-          (alter jobs assoc (:id top-job) updated-top-job)
-          (dequeue-waiting-session session)
-          updated-top-job)))))
+      (reserve-job session top-job))))
 
 (defn use [session tube-name]
   (let [tube-name-kw (keyword tube-name)]
@@ -140,7 +151,9 @@
             :ready (alter (:ready_set tube) disj job)
             :buried (alter (:buried_list tube) (fn [v i] (vec (remove-item v i))) job)
             () ;; default clause, do nothing
-            ))
+            )
+          (alter session assoc :incoming_job nil)
+          (alter session assoc :state :idle))
         (assoc job :state :invalid)))))
 
 (defn release [session id priority delay]
@@ -150,7 +163,9 @@
       (dosync
         (if (> delay 0)
           (alter (:delay_set tube) conj (assoc updated-job :state :delayed)) ;; delayed 
-          (alter (:ready_set tube) conj (assoc updated-job :state :ready)))))))
+          (set-job-as-ready updated-job))
+        (alter session assoc :incoming_job nil)
+        (alter session assoc :state :idle)))))
 
 (defn bury [session id priority]
   (if-let [job (get @jobs id)]
@@ -162,7 +177,9 @@
           ;; the job still can be found from jobs dictionary (for delete)
           (alter (:ready_set tube) disj job) ;;for reserved job, nothing done in this operation
           (alter (:buried_list tube) conj updated-job)
-          (alter jobs assoc (:id updated-job) updated-job))
+          (alter jobs assoc (:id updated-job) updated-job)
+          (alter session assoc :incoming_job nil)
+          (alter session assoc :state :idle))
         updated-job))))
 
 ;; for USED tube only
@@ -175,16 +192,16 @@
               updated-kicked (map #(assoc % :state :ready) kicked)
               remained (drop bound @(:delay_set tube))
               remained-set (apply sorted-set-by delay-comparator remained)]
-          (alter (:ready_set tube) conj-all updated-kicked)
+          
           (ref-set (:delay_set tube) remained-set)
-          (alter jobs merge (zipmap (map #(:id %) updated-kicked) updated-kicked)))
+          (doseq [job updated-kicked] (set-job-as-ready job)))
         
         ;; kick at most bound jobs from buried list
         (let [kicked (take bound @(:buried_list tube))
               updated-kicked (map #(assoc % :state :ready) kicked)
               remained (vec (drop bound @(:buried_list tube)))]
-          (alter (:ready_set tube) conj-all updated-kicked)
-          (ref-set (:buried_list tube) remained))))))
+          (ref-set (:buried_list tube) remained)
+          (doseq [job updated-kicked] (set-job-as-ready job)))))))
 
 (defn touch [session id]
   (let [job (get @jobs id)

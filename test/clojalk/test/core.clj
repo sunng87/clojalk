@@ -220,3 +220,14 @@
     
     (is (false? @(:paused (:expire-tube-test @tubes))))))
 
+
+(deftest test-pending-reserved-session
+  (let [session-p (use (open-session :producer) "pending-test")
+        session-w (watch (open-session :worker) "pending-test")]
+    ;; waiting for incoming job
+    (reserve session-w)
+    
+    ;; put a job
+    (put session-p 10 0 20 "nice")
+    
+    (is (= "nice" (:body (:incoming_job @session-w))))))
