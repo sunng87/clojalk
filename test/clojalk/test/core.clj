@@ -32,11 +32,13 @@
       (is (not (nil? job)))
       (is (= 3 (:priority job)))
       (is (= :reserved (:state job)))
-      (is (= 1 (count @(:ready_set (:test @tubes))))))
+      (is (= 1 (count @(:ready_set (:test @tubes)))))
+      (is (empty? @(:waiting_list (:test @tubes)))))
 
     ;; reserve a job from empty tube
     (let [job (reserve session-e)]
-      (is (nil? job)))))
+      (is (nil? job))
+      (is (not-empty @(:waiting_list (:empty @tubes)))))))
 
 (deftest test-delete
   (let [session-p (use (open-session :producer) "delete-test")

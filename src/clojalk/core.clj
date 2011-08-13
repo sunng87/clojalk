@@ -54,6 +54,26 @@
 (defonce tubes (ref {:default (make-tube "default")}))
 (defonce commands (ref {}))
 
+;;------ functions -------
+(defn- top-ready-job [session]
+  (let [watchlist (:watch session)
+        watch-tubes (filter not-nil (map #(get @tubes %) watchlist))
+        watch-tubes (filter #(false? @(:paused %)) watch-tubes)
+        top-jobs (filter not-nil (map #(first @(:ready_set %)) watch-tubes))]
+    (first (apply sorted-set-by (conj top-jobs priority-comparator)))))
+
+(defn- enqueue-waiting-session [session]
+  (let [watch-tubes (filter #(contains? (:watch session) (:name %)) (vals @tubes))]
+    (doseq [tube watch-tubes]
+      (alter (:waiting_list tube) conj session)
+      (alter tubes assoc (:name tube) tube))))
+
+(defn- dequeue-waiting-session [session]
+  (let [watch-tubes (filter #(contains? (:watch session) (:name %)) (vals @tubes))]
+    (doseq [tube watch-tubes]
+      (alter (:waiting_list tube) remove-item session)
+      (alter tubes assoc (:name tube) tube))))
+
 ;;------ clojalk commands ------
 
 (defn put [session priority delay ttr body]
@@ -85,23 +105,20 @@
     (first @(:buried_list tube))))
 
 (defn reserve [session]
-  (let [watchlist (:watch session)
-        watch-tubes (filter not-nil (map #(get @tubes %) watchlist))
-        watch-tubes (filter #(false? @(:paused %)) watch-tubes)
-        top-jobs (filter not-nil (map #(first @(:ready_set %)) watch-tubes))
-        top-job (first (apply sorted-set-by (conj top-jobs priority-comparator)))
-        updated-top-job (if top-job 
-                          (assoc top-job
-                                 :state :reserved
-                                 :reserver session
-                                 :deadline_at (+ (current-time) (* (:ttr top-job) 1000))))
-        top-job-cube (and top-job (get @tubes (:tube top-job)))]
-    (if top-job
-      (do
-        (dosync 
-          (alter (:ready_set top-job-cube) disj top-job)
-          (alter jobs assoc (:id top-job) updated-top-job))
-        updated-top-job))))
+  (dosync
+    (enqueue-waiting-session session)
+    (if-let [top-job (top-ready-job session)]
+      (let [updated-top-job (if top-job 
+                              (assoc top-job
+                                     :state :reserved
+                                     :reserver session
+                                     :deadline_at (+ (current-time) (* (:ttr top-job) 1000))))
+            top-job-tube (and top-job (get @tubes (:tube top-job)))]
+        (do
+          (alter (:ready_set top-job-tube) disj top-job)
+          (alter jobs assoc (:id top-job) updated-top-job)
+          (dequeue-waiting-session session)
+          updated-top-job)))))
 
 (defn use [session tube-name]
   (let [tube-name-kw (keyword tube-name)]
