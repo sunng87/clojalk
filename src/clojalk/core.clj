@@ -11,7 +11,7 @@
   :waiting_list :paused :pause_deadline)
 
 ;; struct definition for Session (connection in beanstalkd)
-(defstruct Session :type :use :watch :deadline_at)
+(defstruct Session :type :use :watch :deadline_at :incoming_job)
 
 (defn- job-comparator [field j1 j2]
   (cond 
@@ -46,7 +46,7 @@
     (struct Job id delay ttr priority created_at nil state tube body nil)))
 
 (defn open-session [type]
-  (struct Session type :default #{:default} nil))
+  (ref (struct Session type :default #{:default} nil)))
 
 ;;------ clojalk globals -------
 
@@ -56,28 +56,30 @@
 
 ;;------ functions -------
 (defn- top-ready-job [session]
-  (let [watchlist (:watch session)
+  (let [watchlist (:watch @session)
         watch-tubes (filter not-nil (map #(get @tubes %) watchlist))
         watch-tubes (filter #(false? @(:paused %)) watch-tubes)
         top-jobs (filter not-nil (map #(first @(:ready_set %)) watch-tubes))]
     (first (apply sorted-set-by (conj top-jobs priority-comparator)))))
 
 (defn- enqueue-waiting-session [session]
-  (let [watch-tubes (filter #(contains? (:watch session) (:name %)) (vals @tubes))]
+  (let [watch-tubes (filter #(contains? (:watch @session) (:name %)) (vals @tubes))]
     (doseq [tube watch-tubes]
       (alter (:waiting_list tube) conj session)
       (alter tubes assoc (:name tube) tube))))
 
 (defn- dequeue-waiting-session [session]
-  (let [watch-tubes (filter #(contains? (:watch session) (:name %)) (vals @tubes))]
+  (let [watch-tubes (filter #(contains? (:watch @session) (:name %)) (vals @tubes))]
     (doseq [tube watch-tubes]
       (alter (:waiting_list tube) remove-item session)
       (alter tubes assoc (:name tube) tube))))
 
+
+
 ;;------ clojalk commands ------
 
 (defn put [session priority delay ttr body]
-  (let [tube ((:use session) @tubes)
+  (let [tube ((:use @session) @tubes)
         job (make-job priority delay ttr (:name tube) body)]
     (do
       (dosync
@@ -93,15 +95,15 @@
 
 ;; peek-* are producer tasks, peek job from current USED tubes (not watches)
 (defn peek-ready [session]
-  (let [tube ((:use session) @tubes)]
+  (let [tube ((:use @session) @tubes)]
     (first @(:ready_set tube))))
 
 (defn peek-delayed [session]
-  (let [tube ((:use session) @tubes)]
+  (let [tube ((:use @session) @tubes)]
     (first @(:delay_set tube))))
 
 (defn peek-buried [session]
-  (let [tube ((:use session) @tubes)]
+  (let [tube ((:use @session) @tubes)]
     (first @(:buried_list tube))))
 
 (defn reserve [session]
@@ -124,8 +126,9 @@
   (let [tube-name-kw (keyword tube-name)]
     (dosync
       (if-not (contains? @tubes tube-name-kw)
-        (alter tubes assoc tube-name-kw (make-tube tube-name))))
-    (assoc session :use tube-name-kw)))
+        (alter tubes assoc tube-name-kw (make-tube tube-name)))
+        (alter session assoc :use tube-name-kw)
+      session)))
 
 (defn delete [session id]
   (if-let [job (get @jobs id)]
@@ -164,7 +167,7 @@
 
 ;; for USED tube only
 (defn kick [session bound]
-  (let [tube ((:use session) @tubes)]
+  (let [tube ((:use @session) @tubes)]
     (dosync
       (if (empty? @(:buried_list tube))
         ;; no jobs buried, kick from delay set
@@ -196,21 +199,24 @@
   (let [tube-name-kw (keyword tube-name)]
     (dosync
       (if-not (contains? @tubes tube-name-kw)
-        (alter tubes assoc tube-name-kw (make-tube tube-name))))
-    (assoc session :watch (conj (:watch session) tube-name-kw))))
+        (alter tubes assoc tube-name-kw (make-tube tube-name)))
+        (alter session assoc :watch (conj (:watch @session) tube-name-kw))
+      session)))
 
 (defn ignore [session tube-name]
   (let [tube-name-kw (keyword tube-name)]
-    (assoc session :watch (disj (:watch session) tube-name-kw))))
+    (dosync
+      (alter session assoc :watch (disj (:watch session) tube-name-kw)))
+    session))
 
 (defn list-tubes [session]
   (keys @tubes))
 
 (defn list-tube-used [session]
-  (:use session))
+  (:use @session))
 
 (defn list-tubes-watched [session]
-  (:watch session))
+  (:watch @session))
 
 (defn pause-tube [session id timeout]
   (let [tube ((keyword id) @tubes)]
