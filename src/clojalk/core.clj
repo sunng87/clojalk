@@ -42,8 +42,7 @@
   (let [id (next-id)
         now (current-time)
         created_at now
-        activated_at (+ now delay)
-        state (if (< created_at activated_at) :delayed :ready)]
+        state (if (> delay 0) :delayed :ready)]
     (struct Job id delay ttr priority created_at nil state tube body nil)))
 
 (defn open-session [type]
@@ -95,9 +94,8 @@
     (do
       (alter jobs assoc (:id job) job)
       (alter (:ready_set tube) conj job)
-      (let [tube ((:tube job) @tubes)]
-        (if-let [s (first @(:waiting_list tube))]
-          (reserve-job s job))))))
+      (if-let [s (first @(:waiting_list tube))]
+        (reserve-job s job)))))
 
 ;;------ clojalk commands ------
 
@@ -163,7 +161,7 @@
       (dosync
         (if (> delay 0)
           (alter (:delay_set tube) conj (assoc updated-job :state :delayed)) ;; delayed 
-          (set-job-as-ready updated-job))
+          (set-job-as-ready (assoc updated-job :state :ready)))
         (alter session assoc :incoming_job nil)
         (alter session assoc :state :idle)))))
 

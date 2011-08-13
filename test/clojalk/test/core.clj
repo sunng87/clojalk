@@ -223,13 +223,44 @@
 
 (deftest test-pending-reserved-session
   (let [session-p (use (open-session :producer) "pending-test")
-        session-w (watch (open-session :worker) "pending-test")]
+        session-w (watch (open-session :worker) "pending-test")
+        session-w2 (watch (open-session :worker) "pending-test")]
     ;; waiting for incoming job
     (reserve session-w)
     (is (= :waiting (:state @session-w)))
+    (reserve session-w2)
     
     ;; put a job
     (put session-p 10 0 20 "nice")
     
     (is (= "nice" (:body (:incoming_job @session-w))))
-    (is (= :working (:state @session-w)))))
+    (is (= :working (:state @session-w)))
+    
+    (let [the-job-id (:id (:incoming_job @session-w))]
+      ;; release it
+      (release session-w the-job-id 10 0)
+      
+      ;; it should be reserved by session-w2 immediately
+;      (dbg (:pending-test @tubes))
+      (is (= :working (:state @session-w2)))
+      (is (= :reserved (:state (get @jobs the-job-id))))
+      (is (= session-w2 (:reserver (get @jobs the-job-id))))
+      (is (empty? @(:waiting_list (:pending-test @tubes)))))
+    
+    ;; reserve and acquire the job
+    (reserve session-w)
+    (put session-p 10 0 20 "neat")
+    (is (= :working (:state @session-w)))
+    
+    ;; bury it
+    (let [the-job-id (:id (:incoming_job @session-w))]
+      (bury session-w the-job-id 10)
+      (is (= :idle (:state @session-w)))
+      (is (= 1 (count @(:buried_list (:pending-test @tubes)))))
+      
+      (reserve session-w)
+      
+      ;; kick it to ready
+      (kick session-p 10)
+      (is (= :reserved (:state (get @jobs the-job-id))))
+      (is (= :working (:state @session-w))))))
