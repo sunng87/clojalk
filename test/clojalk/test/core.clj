@@ -226,8 +226,10 @@
         session-w (watch (open-session :worker) "pending-test")]
     ;; waiting for incoming job
     (reserve session-w)
+    (is (= :waiting (:state @session-w)))
     
     ;; put a job
     (put session-p 10 0 20 "nice")
     
-    (is (= "nice" (:body (:incoming_job @session-w))))))
+    (is (= "nice" (:body (:incoming_job @session-w))))
+    (is (= :working (:state @session-w)))))
