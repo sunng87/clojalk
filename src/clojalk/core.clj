@@ -87,6 +87,7 @@
 (defn reserve [session]
   (let [watchlist (:watch session)
         watch-tubes (filter not-nil (map #(get @tubes %) watchlist))
+        watch-tubes (filter #(false? @(:paused %)) watch-tubes)
         top-jobs (filter not-nil (map #(first @(:ready_set %)) watch-tubes))
         top-job (first (apply sorted-set-by (conj top-jobs priority-comparator)))
         updated-top-job (if top-job 
