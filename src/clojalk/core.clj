@@ -53,6 +53,7 @@
 (defonce jobs (ref {}))
 (defonce tubes (ref {:default (make-tube "default")}))
 (defonce commands (ref {}))
+(defonce start-at (current-time))
 
 ;;------ functions -------
 (defn- top-ready-job [session]
@@ -278,7 +279,15 @@
       (doseq [t expired-tubes]
         (do 
           (ref-set (:paused t) false)
-          (alter tubes assoc (:name t) t))))))
+          (alter tubes assoc (:name t) t)
+          
+          ;; handle waiting session
+          (loop [s (first @(:waiting_list t))
+                 j (first @(:ready_set t))]
+            (if (and s j)
+              (do
+                (reserve-job s j)
+                (recur (first @(:waiting_list t)) (first @(:ready_set t)))))))))))
 
 (defn update-expired-waiting-session-task []
   (dosync

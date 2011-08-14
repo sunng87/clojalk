@@ -211,13 +211,21 @@
     (is (= 3 (count @(:ready_set (:expire-task-test @tubes)))))))
 
 (deftest test-update-expired-tube
-  (let [session-p (use (open-session :producer) "expire-tube-test")]
+  (let [session-p (use (open-session :producer) "expire-tube-test")
+        session-w (watch (open-session :worker) "expire-tube-test")]
+    (put session-p 100 0 500 "nice")
     (pause-tube session-p "expire-tube-test" 0.5)
     (is (true? @(:paused (:expire-tube-test @tubes))))
+    
+    ;; working should be waiting for tube to continue
+    (reserve session-w)
+    (is (= :waiting (:state @session-w)))
     
     (sleep 0.8)
     (update-paused-tube-task)
     
+    ;; job could be automatically assign to pending worker
+    (is (= :working (:state @session-w)))
     (is (false? @(:paused (:expire-tube-test @tubes))))))
 
 
