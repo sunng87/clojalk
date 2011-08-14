@@ -1,6 +1,6 @@
 # clojalk
 
-FIXME: write description
+A distributed task queue in clojure. A Beanstalkd clone.
 
 ## Usage
 
@@ -8,6 +8,6 @@ FIXME: write
 
 ## License
 
-Copyright (C) 2011 FIXME
+Copyright (C) 2011 Sun Ning
 
-Distributed under the Eclipse Public License, the same as Clojure.
+TODO
