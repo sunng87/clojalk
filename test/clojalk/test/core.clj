@@ -264,3 +264,15 @@
       (kick session-p 10)
       (is (= :reserved (:state (get @jobs the-job-id))))
       (is (= :working (:state @session-w))))))
+
+
+(deftest test-reserve-timeout
+  (let [session-w (watch (open-session :worker) "test-reserve-timeout")]
+    ;;reserve an empty tube with timeout
+    (reserve-with-timeout session-w 0.5)
+    (is (= 1 (count @(:waiting_list (:test-reserve-timeout @tubes)))))
+    
+    (sleep 0.7)
+    (update-expired-waiting-session-task)
+    (is (empty? @(:waiting_list (:test-reserve-timeout @tubes))))
+    (is (= :idle (:state @session-w)))))

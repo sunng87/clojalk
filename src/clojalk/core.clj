@@ -62,12 +62,16 @@
         top-jobs (filter not-nil (map #(first @(:ready_set %)) watch-tubes))]
     (first (apply sorted-set-by (conj top-jobs priority-comparator)))))
 
-(defn- enqueue-waiting-session [session]
-  (let [watch-tubes (filter #(contains? (:watch @session) (:name %)) (vals @tubes))]
+(defn- enqueue-waiting-session [session timeout]
+  (let [watch-tubes (filter #(contains? (:watch @session) (:name %)) (vals @tubes))
+        deadline_at (if (nil? timeout) nil (+ (current-time) (* timeout 1000)))]
     (doseq [tube watch-tubes]
-      (alter (:waiting_list tube) conj session)
-      (alter session assoc :state :waiting)
-      (alter tubes assoc (:name tube) tube))))
+      (do
+        (alter (:waiting_list tube) conj session)
+        (alter session assoc 
+               :state :waiting 
+               :deadline_at deadline_at)
+        (alter tubes assoc (:name tube) tube)))))
 
 (defn- dequeue-waiting-session [session]
   (let [watch-tubes (filter #(contains? (:watch @session) (:name %)) (vals @tubes))]
@@ -125,11 +129,14 @@
   (let [tube ((:use @session) @tubes)]
     (first @(:buried_list tube))))
 
-(defn reserve [session]
+(defn reserve-with-timeout [session timeout]
   (dosync
-    (enqueue-waiting-session session)
+    (enqueue-waiting-session session timeout)
     (if-let [top-job (top-ready-job session)]
       (reserve-job session top-job))))
+
+(defn reserve [session]
+  (reserve-with-timeout session nil))
 
 (defn use [session tube-name]
   (let [tube-name-kw (keyword tube-name)]
@@ -272,4 +279,18 @@
         (do 
           (ref-set (:paused t) false)
           (alter tubes assoc (:name t) t))))))
+
+(defn update-expired-waiting-session-task []
+  (dosync
+    (doseq
+      [tube (vals @tubes)]
+      (let [now (current-time)
+            waiting_list @(:waiting_list tube)
+            active-func (fn [s] (or (nil? (:deadline_at @s)) (< now (:deadline_at @s))))]
+        (do
+          (ref-set (:waiting_list tube) (vec (filter active-func waiting_list)))
+          (doseq [session (filter #(false? (active-func %)) waiting_list)] 
+            ;; we don't update deadline_at on this task, 
+            ;; it will be updated next time when it's reserved
+            (alter session assoc :state :idle))))))) 
 
