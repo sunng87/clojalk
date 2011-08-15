@@ -102,15 +102,22 @@
       (if-let [s (first @(:waiting_list tube))]
         (reserve-job s job)))))
 
+(defn- job-stats []
+  {"current-jobs-urgent" (count (filter #(< (:priority %)) (vals @jobs)))
+   "current-jobs-ready" (count (filter #(= :ready (:state %)) (vals @jobs)))
+   "current-jobs-reserved" (count (filter #(= :reserved (:state %)) (vals @jobs)))
+   "current-jobs-delayed" (apply + (map #(count @(:delay_set %)) (vals @tubes)))
+   "current-jobs-buried" (apply + (map #(count @(:buried_list %)) (vals @tubes)))})
+
 ;;-------- macros ----------
 
 (defmacro defcommand [name args & body]
-  (dosync (alter commands assoc name (atom 0)))
+  (dosync (alter commands assoc (str "cmd-" name) (atom 0)))
   `(defn ~(symbol name) ~args ~@body))
 
 (defmacro exec-cmd [cmd & args]
   `(do
-     (if-let [cnt# (get @commands ~cmd)]
+     (if-let [cnt# (get @commands (str "cmd-" ~cmd))]
        (swap! cnt# inc))
      (~(symbol cmd) ~@args)))
 
