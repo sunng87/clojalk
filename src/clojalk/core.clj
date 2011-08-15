@@ -102,9 +102,21 @@
       (if-let [s (first @(:waiting_list tube))]
         (reserve-job s job)))))
 
+;;-------- macros ----------
+
+(defmacro defcommand [name args & body]
+  (dosync (alter commands assoc name (atom 0)))
+  `(defn ~(symbol name) ~args ~@body))
+
+(defmacro exec-cmd [cmd & args]
+  `(do
+     (if-let [cnt# (get @commands ~cmd)]
+       (swap! cnt# inc))
+     (~(symbol cmd) ~@args)))
+
 ;;------ clojalk commands ------
 
-(defn put [session priority delay ttr body]
+(defcommand "put" [session priority delay ttr body]
   (let [tube ((:use @session) @tubes)
         job (make-job priority delay ttr (:name tube) body)]
     (do
@@ -114,32 +126,32 @@
           :ready (set-job-as-ready job)))
       job)))
 
-(defn peek [session id]
+(defcommand "peek" [session id]
   (get @jobs id))
 
 ;; peek-* are producer tasks, peek job from current USED tubes (not watches)
-(defn peek-ready [session]
+(defcommand "peek-ready" [session]
   (let [tube ((:use @session) @tubes)]
     (first @(:ready_set tube))))
 
-(defn peek-delayed [session]
+(defcommand "peek-delayed" [session]
   (let [tube ((:use @session) @tubes)]
     (first @(:delay_set tube))))
 
-(defn peek-buried [session]
+(defcommand "peek-buried" [session]
   (let [tube ((:use @session) @tubes)]
     (first @(:buried_list tube))))
 
-(defn reserve-with-timeout [session timeout]
+(defcommand "reserve-with-timeout" [session timeout]
   (dosync
     (enqueue-waiting-session session timeout)
     (if-let [top-job (top-ready-job session)]
       (reserve-job session top-job))))
 
-(defn reserve [session]
+(defcommand "reserve" [session]
   (reserve-with-timeout session nil))
 
-(defn use [session tube-name]
+(defcommand "use" [session tube-name]
   (let [tube-name-kw (keyword tube-name)]
     (dosync
       (if-not (contains? @tubes tube-name-kw)
@@ -147,7 +159,7 @@
         (alter session assoc :use tube-name-kw)
       session)))
 
-(defn delete [session id]
+(defcommand "delete" [session id]
   (if-let [job (get @jobs id)]
     (let [tube ((:tube job) @tubes)]
       (do
@@ -162,7 +174,7 @@
           (alter session assoc :state :idle))
         (assoc job :state :invalid)))))
 
-(defn release [session id priority delay]
+(defcommand "release" [session id priority delay]
   (if-let [job (get @jobs id)]
     (let [tube ((:tube job) @tubes)
           updated-job (assoc job :priority priority :delay delay)]
@@ -173,7 +185,7 @@
         (alter session assoc :incoming_job nil)
         (alter session assoc :state :idle)))))
 
-(defn bury [session id priority]
+(defcommand "bury" [session id priority]
   (if-let [job (get @jobs id)]
     (let [tube ((:tube job) @tubes)
           updated-job (assoc job :state :buried :priority priority)]
@@ -189,7 +201,7 @@
         updated-job))))
 
 ;; for USED tube only
-(defn kick [session bound]
+(defcommand "kick" [session bound]
   (let [tube ((:use @session) @tubes)]
     (dosync
       (if (empty? @(:buried_list tube))
@@ -209,7 +221,7 @@
           (ref-set (:buried_list tube) remained)
           (doseq [job updated-kicked] (set-job-as-ready job)))))))
 
-(defn touch [session id]
+(defcommand "touch" [session id]
   (let [job (get @jobs id)
         updated-job (assoc job :deadline_at (+ (current-time) (* (:ttr job) 1000)))]
     (dosync
@@ -218,7 +230,7 @@
           (alter jobs assoc (:id updated-job) updated-job)
           updated-job)))))
 
-(defn watch [session tube-name]
+(defcommand "watch" [session tube-name]
   (let [tube-name-kw (keyword tube-name)]
     (dosync
       (if-not (contains? @tubes tube-name-kw)
@@ -226,22 +238,22 @@
         (alter session assoc :watch (conj (:watch @session) tube-name-kw))
       session)))
 
-(defn ignore [session tube-name]
+(defcommand "ignore" [session tube-name]
   (let [tube-name-kw (keyword tube-name)]
     (dosync
       (alter session assoc :watch (disj (:watch session) tube-name-kw)))
     session))
 
-(defn list-tubes [session]
+(defcommand "list-tubes" [session]
   (keys @tubes))
 
-(defn list-tube-used [session]
+(defcommand "list-tube-used" [session]
   (:use @session))
 
-(defn list-tubes-watched [session]
+(defcommand "list-tubes-watched" [session]
   (:watch @session))
 
-(defn pause-tube [session id timeout]
+(defcommand "pause-tube" [session id timeout]
   (let [tube ((keyword id) @tubes)]
     (dosync
       (ref-set (:paused tube) true)
