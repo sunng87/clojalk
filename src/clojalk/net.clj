@@ -2,5 +2,6 @@
   (:refer-clojure :exclude [use peek])
   (:use [clojalk.core])
   (:use [aleph.tcp])
-  (:use [lamina.core]))
+  (:use [lamina.core])
+  (:use [gloss.core]))
 
