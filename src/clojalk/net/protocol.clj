@@ -1,4 +1,5 @@
 (ns clojalk.net.protocol
+  (:use [clojalk.utils])
   (:use [gloss.core])
   (:use [clojure.string :only [lower-case]]))
 
@@ -12,14 +13,15 @@
     #(if-not % -1 (- % count-offset))))
 
 ;; --------- gloss codec definitions -----------
-(defcodec token (string :ascii :delimiters [" " "\n" "\r\n"]))
+(defcodec token (string :ascii :delimiters ["\r\n" " " "\n"]))
 (defcodec body 
   (finite-frame
      (string-length-and-offset 2)
      (string :utf8 :suffix "\r\n")))
 
 (def codec-map 
-  {"quit" []
+  {;; request headers
+   "quit" []
    "list-tubes" []
    "list-tube-used" []
    "list-tubes-watched" []
@@ -38,16 +40,19 @@
    "touch" [token]
    "bury" [token token]
    "kick" [token]
-   "put" [token token token body]})
+   "put" [token token token body]
+   
+   ;; response headers
+   "inserted" [token]
+   "reserved" [token body]})
 
 (defn- commands-mapping [cmd]
-  (let [normalized-cmd (lower-case cmd)]
+  (let [normalized-cmd (lower-case (dbg cmd))]
     (if (contains? codec-map normalized-cmd)
-      (compile-frame (codec-map normalized-cmd) nil #(cons normalized-cmd %))
+      (compile-frame (dbg (codec-map normalized-cmd)) #(rest %) #(cons normalized-cmd %))
       (string :utf8 :delimiters ["\r\n"]))))
 
-(defn- put-all [body]
-  "=>")
+(defn- empty-header [body] "")
 
 (defcodec beanstalkd-codec
-  (header token commands-mapping put-all))
+  (header token commands-mapping first))
