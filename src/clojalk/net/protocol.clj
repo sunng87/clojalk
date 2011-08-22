@@ -1,6 +1,6 @@
 (ns clojalk.net.protocol
   (:use [gloss.core])
-  (:use [clojure.string :only [trim]]))
+  (:use [clojure.string :only [lower-case]]))
 
 ;; a wrapper for string-integer, copied from ztellman's aleph redis client
 ;; this codec adds an offset to string length, which is common seen in text
@@ -20,11 +20,28 @@
 
 (def codec-map 
   {"quit" []
-   "reserve" [token]
+   "list-tubes" []
+   "list-tube-used" []
+   "list-tubes-watched" []
+   "peek" [token]
+   "peek-ready" []
+   "peek-buried" []
+   "peek-delayed" []
+   "watch" [token]
+   "ignore" [token]
+   "use" [token]
+   "pause-tube" [token token]
+   "reserve" []
+   "reserve-with-timeout" [token]
+   "release" [token token token]
+   "delete" [token]
+   "touch" [token]
+   "bury" [token token]
+   "kick" [token]
    "put" [token token token body]})
 
 (defn- commands-mapping [cmd]
-  (if (contains? codec-map cmd)
+  (if (contains? codec-map (lower-case cmd))
     (compile-frame (codec-map cmd) nil #(cons cmd %))
     (string :utf8 :delimiters ["\r\n"])))
 
