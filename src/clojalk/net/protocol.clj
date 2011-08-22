@@ -4,13 +4,13 @@
 
 
 ;; --------- gloss codec definitions -----------
-(defcodec token (string :utf-8 :delimiters [" " "\n" "\r\n"]))
+(defcodec token (string :ascii :delimiters [" " "\n" "\r\n"]))
 (defcodec body 
   (compile-frame
     [(finite-frame
        (string-integer :ascii :delimiters ["\n" "\r\n"])
        (string :utf8))
-     (string :utf8 :suffix "\n")]
+     (string :utf8 :suffix "\r\n")]
     nil first))
 
 (defcodec quit-codec
