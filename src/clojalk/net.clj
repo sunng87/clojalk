@@ -12,7 +12,7 @@
        (println msg)
        (case (first msg)
            "quit" (close ch)
-           (enqueue ch (str "=>" (pr-str msg) "\r\n"))))))
+           (enqueue ch (pr-str msg))))))
 
 (defn start-server [port]
   (start-tcp-server echo-handler {:port port, :frame beanstalkd-codec}))

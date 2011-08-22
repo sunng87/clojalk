@@ -10,7 +10,8 @@
     [(finite-frame
        (string-integer :ascii :delimiters ["\n" "\r\n"])
        (string :utf8))
-     (string :utf8 :delimiters ["\n" "\r\n"])] nil first))
+     (string :utf8 :suffix "\n")]
+    nil first))
 
 (defcodec quit-codec
           (compile-frame [] #() #(cons "quit" %)))
@@ -23,14 +24,15 @@
                          #() #(cons "put" %)))
 
 (defn- commands-mapping [cmd]
-  (case (trim cmd)
+  (case cmd
     "quit" quit-codec
     "put" put-codec
     "reserve" reserve-codec
-    nil))
+    
+    "=>" (string :utf8 :suffix "\r\n")))
 
 (defn- put-all [body]
-  string)
+  "=>")
 
 (defcodec beanstalkd-codec
   (header token commands-mapping put-all))
