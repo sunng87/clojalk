@@ -18,6 +18,19 @@
          
            (enqueue ch "UNKNOWN_COMMAND"))))))
 
+;; all sessions
+(defonce sessions (ref {}))
+
+;; 
+(defn handle-command [ch cmd args])
+
+(defn command-dispatcher [ch client-info]
+  (receive-all ch
+    #(if-let [msg %]
+       (if (seq? msg)
+         (handle-command ch (first msg) (rest msg))
+         (enqueue ch "UNKNOWN_COMMAND")))))
+
 (defn start-server [port]
   (start-tcp-server echo-handler {:port port, :frame beanstalkd-codec}))
 
