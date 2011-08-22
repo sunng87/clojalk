@@ -41,9 +41,10 @@
    "put" [token token token body]})
 
 (defn- commands-mapping [cmd]
-  (if (contains? codec-map (lower-case cmd))
-    (compile-frame (codec-map cmd) nil #(cons cmd %))
-    (string :utf8 :delimiters ["\r\n"])))
+  (let [normalized-cmd (lower-case cmd)]
+    (if (contains? codec-map normalized-cmd)
+      (compile-frame (codec-map normalized-cmd) nil #(cons normalized-cmd %))
+      (string :utf8 :delimiters ["\r\n"]))))
 
 (defn- put-all [body]
   "=>")
