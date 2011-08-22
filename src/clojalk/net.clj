@@ -8,11 +8,15 @@
 
 (defn echo-handler [ch client-info]
   (receive-all ch
-    #(let [msg %]
-       (println msg)
-       (case (first msg)
-           "quit" (close ch)
-           (enqueue ch (pr-str msg))))))
+    #(if-let [msg %]
+       (do
+         (println msg)
+         (if (seq? msg) ;; known command will be transformed into a sequence by codec
+           (case (first msg)
+             "quit" (close ch)
+             (enqueue ch (pr-str msg)))
+         
+           (enqueue ch "UNKNOWN_COMMAND"))))))
 
 (defn start-server [port]
   (start-tcp-server echo-handler {:port port, :frame beanstalkd-codec}))
