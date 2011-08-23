@@ -248,7 +248,7 @@
 (defcommand "ignore" [session tube-name]
   (let [tube-name-kw (keyword tube-name)]
     (dosync
-      (alter session assoc :watch (disj (:watch session) tube-name-kw)))
+      (alter session assoc :watch (disj (:watch @session) tube-name-kw)))
     session))
 
 (defcommand "list-tubes" [session]

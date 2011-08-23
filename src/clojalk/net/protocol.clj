@@ -15,7 +15,7 @@
 ;; --------- gloss codec definitions -----------
 (defcodec token (string :ascii :delimiters [" " "\r\n" "\n"]))
 (defcodec token-space (string :ascii :delimiters [" "]))
-(defcodec token-newline (string :ascii :delimiters ["\r\n" "\n"]))
+(defcodec token-newline (string :ascii :delimiters ["\r\n"]))
 (defcodec body 
   (finite-frame
      (string-length-and-offset 2)
@@ -46,7 +46,13 @@
    
    ;; response headers
    "INSERTED" [token-newline]
-   "RESERVED" [token-space body]})
+   "RESERVED" [token-space body]
+   "USING" [token-newline]
+   "WATCHING" [token-newline]
+   "BAD_FORMAT" []
+   "NOT_IGNORED" []
+   "INTERNAL_ERROR" []
+   "UNKNOWN_COMMAND" []})
 
 (defn- commands-mapping [cmd]
   (let [normalized-cmd (upper-case cmd)]

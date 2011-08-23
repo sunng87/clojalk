@@ -1,5 +1,6 @@
 (ns clojalk.net
   (:refer-clojure :exclude [use peek])
+  (:require [clojure.contrib.logging :as logging])
   (:use [clojalk core utils])
   (:use [clojalk.net.protocol])
   (:use [aleph.tcp])
@@ -17,7 +18,7 @@
              "quit" (close ch)
              (enqueue ch ["INSERTED" "5"]))
          
-           (enqueue ch "UNKNOWN_COMMAND"))))))
+           (enqueue ch ["UNKNOWN_COMMAND"]))))))
 
 ;; sessions 
 (defonce sessions (ref {}))
@@ -58,11 +59,37 @@
   (add-watch session (:id session) incoming-job-watcher)
   (reserve session))
 
+(defn on-use [ch session args]
+  (let [tube-name (first args)]
+    (use session args)
+    (enqueue ch ["USING" tube-name])))
+
+(defn on-watch [ch session args]
+  (let [tube-name (first args)]
+    (watch session tube-name)
+    (enqueue ch ["WATCHING" (str (count (:watch @session)))])))
+
+(defn on-ignore [ch session args]
+  (if (> (count (:watch @session)) 1)
+    (let [tube-name (first args)]
+      (ignore session tube-name)
+      (enqueue ch ["WATCHING" (str (count (:watch @session)))]))
+    (enqueue ch ["NOT_IGNORED"])))
+
+(defn on-quit [ch remote-addr]
+  (close-session remote-addr)
+  (close ch))
+
 (defn command-dispatcher [ch client-info cmd args]
   (let [remote-addr (:remote-addr client-info)]
     (case cmd
       "PUT" (on-put ch (get-or-create-session ch remote-addr :producer) args)
-      "RESERVE" (on-reserve ch (get-or-create-session ch remote-addr :worker)))))
+      "RESERVE" (on-reserve ch (get-or-create-session ch remote-addr :worker))
+      "USE" (on-use ch (get-or-create-session ch remote-addr :producer) args)
+      "WATCH" (on-watch ch (get-or-create-session ch remote-addr :worker) args)
+      "IGNORE" (on-ignore ch (get-or-create-session ch remote-addr :worker) args)
+      "QUIT" (on-quit ch remote-addr)
+      )))
 
 (defn default-handler [ch client-info]
   (receive-all ch
@@ -70,7 +97,10 @@
        (if (seq? msg)
          (try 
            (command-dispatcher ch client-info (first msg) (rest msg))
-           (catch Exception e (enqueue ch ["INTERNAL_ERROR"])))
+           (catch Exception e 
+                  (do
+                    (logging/warn (str "error on processing " msg) e)
+                    (enqueue ch ["INTERNAL_ERROR"]))))
          (enqueue ch ["UNKNOWN_COMMAND"])))))
 
 (defn start-server [port]
