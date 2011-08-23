@@ -163,8 +163,10 @@
 (defn on-peek-buried [ch session]
   (peek-job ch session peek-buried))
 
-(defn command-dispatcher [ch client-info cmd args]
-  (let [remote-addr (:remote-addr client-info)]
+(defn command-dispatcher [ch client-info msg]
+  (let [remote-addr (:remote-addr client-info)
+        cmd (first msg)
+        args (rest msg)]
     (case cmd
       "PUT" (on-put ch (get-or-create-session ch remote-addr :producer) args)
       "RESERVE" (on-reserve ch (get-or-create-session ch remote-addr :worker))
@@ -188,14 +190,14 @@
         (on-peek-delayed ch (get-or-create-session ch remote-addr :producer))
       "PEEK-BURIED" 
         (on-peek-buried ch (get-or-create-session ch remote-addr :producer))
-      )))
+      (enqueue ch ["UNKNOWN_COMMAND"]))))
 
 (defn default-handler [ch client-info]
   (receive-all ch
     #(if-let [msg %]
        (if (seq? msg)
          (try 
-           (command-dispatcher ch client-info (first msg) (rest msg))
+           (command-dispatcher ch client-info msg)
            (catch Exception e 
                   (do
                     (logging/warn (str "error on processing " msg) e)
