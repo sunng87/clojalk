@@ -61,7 +61,7 @@
 
 (defn on-use [ch session args]
   (let [tube-name (first args)]
-    (use session args)
+    (use session tube-name)
     (enqueue ch ["USING" tube-name])))
 
 (defn on-watch [ch session args]

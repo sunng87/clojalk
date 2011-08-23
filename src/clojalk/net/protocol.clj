@@ -62,5 +62,8 @@
 
 (defn- empty-header [body] "")
 
+(defn- find-header [resp]
+  (if (and (vector? resp) (> (count resp) 1)) (first resp)))
+
 (defcodec beanstalkd-codec
   (header token commands-mapping first))
