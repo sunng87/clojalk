@@ -15,7 +15,7 @@
          (if (seq? msg) ;; known command will be transformed into a sequence by codec
            (case (first msg)
              "quit" (close ch)
-             (enqueue ch ["INSERTED" 5]))
+             (enqueue ch ["INSERTED" "5"]))
          
            (enqueue ch "UNKNOWN_COMMAND"))))))
 
@@ -40,7 +40,7 @@
         new-job (:incoming_job new-value)]
     (if (and new-job (not (= old-job new-job)))
       (let [ch (:channel new-value)]
-        (enqueue ch ["RESERVED" (:id new-job) (:body new-job)])))))
+        (enqueue ch ["RESERVED" (str (:id new-job)) (:body new-job)])))))
 
 ;; server handlers
 (defn on-put [ch session args]
@@ -51,7 +51,7 @@
           body (last args)
           job (put session priority delay ttr body)]
       (if job
-        (enqueue ch ["INSERTED" (:id job)])))
+        (enqueue ch ["INSERTED" (str (:id job))])))
     (catch NumberFormatException e (enqueue ch ["BAD_FORMAT"]))))
 
 (defn on-reserve [ch session]
@@ -61,8 +61,8 @@
 (defn command-dispatcher [ch client-info cmd args]
   (let [remote-addr (:remote-addr client-info)]
     (case cmd
-      "put" (on-put ch (get-or-create-session ch remote-addr :producer) args)
-      "reserve" (on-reserve ch (get-or-create-session ch remote-addr :worker)))))
+      "PUT" (on-put ch (get-or-create-session ch remote-addr :producer) args)
+      "RESERVE" (on-reserve ch (get-or-create-session ch remote-addr :worker)))))
 
 (defn default-handler [ch client-info]
   (receive-all ch
@@ -74,7 +74,7 @@
          (enqueue ch ["UNKNOWN_COMMAND"])))))
 
 (defn start-server [port]
-  (start-tcp-server echo-handler {:port port, :frame beanstalkd-codec}))
+  (start-tcp-server default-handler {:port port, :frame beanstalkd-codec}))
 
 (defn -main []
   (do

@@ -1,7 +1,7 @@
 (ns clojalk.net.protocol
   (:use [clojalk.utils])
   (:use [gloss.core])
-  (:use [clojure.string :only [lower-case]]))
+  (:use [clojure.string :only [upper-case]]))
 
 ;; a wrapper for string-integer, copied from ztellman's aleph redis client
 ;; this codec adds an offset to string length, which is common seen in text
@@ -13,7 +13,9 @@
     #(if-not % -1 (- % count-offset))))
 
 ;; --------- gloss codec definitions -----------
-(defcodec token (string :ascii :delimiters ["\r\n" " " "\n"]))
+(defcodec token (string :ascii :delimiters [" " "\r\n" "\n"]))
+(defcodec token-space (string :ascii :delimiters [" "]))
+(defcodec token-newline (string :ascii :delimiters ["\r\n" "\n"]))
 (defcodec body 
   (finite-frame
      (string-length-and-offset 2)
@@ -21,35 +23,35 @@
 
 (def codec-map 
   {;; request headers
-   "quit" []
-   "list-tubes" []
-   "list-tube-used" []
-   "list-tubes-watched" []
-   "peek" [token]
-   "peek-ready" []
-   "peek-buried" []
-   "peek-delayed" []
-   "watch" [token]
-   "ignore" [token]
-   "use" [token]
-   "pause-tube" [token token]
-   "reserve" []
-   "reserve-with-timeout" [token]
-   "release" [token token token]
-   "delete" [token]
-   "touch" [token]
-   "bury" [token token]
-   "kick" [token]
-   "put" [token token token body]
+   "QUIT" []
+   "LIST-TUBES" []
+   "LIST-TUBES-USED" []
+   "LIST-TUBES-WATCHED" []
+   "PEEK" [token]
+   "PEEK-READY" []
+   "PEEK-BURIED" []
+   "PEEK-DELAYED" []
+   "WATCH" [token]
+   "IGNORE" [token]
+   "USE" [token]
+   "PAUSE-TUBE" [token token]
+   "RESERVE" []
+   "RESERVE-WITH-TIMEOUT" [token]
+   "RELEASE" [token token token]
+   "DELETE" [token]
+   "TOUCH" [token]
+   "BURY" [token token]
+   "KICK" [token]
+   "PUT" [token token token body]
    
    ;; response headers
-   "inserted" [token]
-   "reserved" [token body]})
+   "INSERTED" [token-newline]
+   "RESERVED" [token-space body]})
 
 (defn- commands-mapping [cmd]
-  (let [normalized-cmd (lower-case (dbg cmd))]
+  (let [normalized-cmd (upper-case cmd)]
     (if (contains? codec-map normalized-cmd)
-      (compile-frame (dbg (codec-map normalized-cmd)) #(rest %) #(cons normalized-cmd %))
+      (compile-frame (codec-map normalized-cmd) #(rest %) #(cons normalized-cmd %))
       (string :utf8 :delimiters ["\r\n"]))))
 
 (defn- empty-header [body] "")
