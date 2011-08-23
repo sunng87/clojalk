@@ -49,20 +49,25 @@
    "RESERVED" [token-space body]
    "USING" [token-newline]
    "WATCHING" [token-newline]
-   "BAD_FORMAT" []
-   "NOT_IGNORED" []
-   "INTERNAL_ERROR" []
-   "UNKNOWN_COMMAND" []
+   "BAD_FORMAT" [token-newline]
+   "NOT_IGNORED" [token-newline]
+   "INTERNAL_ERROR" [token-newline]
+   "UNKNOWN_COMMAND" [token-newline]
    "OK" [body]
-   "RELEASED" []
-   "BURIED" []
-   "NOT_FOUND" []
-   "DELETED" []})
+   "RELEASED" [token-newline]
+   "BURIED" [token-newline]
+   "NOT_FOUND" [token-newline]
+   "DELETED" [token-newline]
+   "KICKED" [token-newline]
+   "TOUCHED" [token-newline]
+   "FOUND" [token-space body]})
 
 (defn- commands-mapping [cmd]
   (let [normalized-cmd (upper-case cmd)]
     (if (contains? codec-map normalized-cmd)
-      (compile-frame (codec-map normalized-cmd) #(rest %) #(cons normalized-cmd %))
+      (compile-frame (codec-map normalized-cmd) 
+                     #(if (empty? (rest %)) [""] (rest %)) 
+                     #(cons normalized-cmd %))
       (string :utf8 :delimiters ["\r\n"]))))
 
 (defn- empty-header [body] "")

@@ -221,14 +221,16 @@
               remained-set (apply sorted-set-by delay-comparator remained)]
           
           (ref-set (:delay_set tube) remained-set)
-          (doseq [job updated-kicked] (set-job-as-ready job)))
+          (doseq [job updated-kicked] (set-job-as-ready job))
+          updated-kicked)
         
         ;; kick at most bound jobs from buried list
         (let [kicked (take bound @(:buried_list tube))
               updated-kicked (map #(assoc % :state :ready) kicked)
               remained (vec (drop bound @(:buried_list tube)))]
           (ref-set (:buried_list tube) remained)
-          (doseq [job updated-kicked] (set-job-as-ready job)))))))
+          (doseq [job updated-kicked] (set-job-as-ready job))
+          updated-kicked)))))
 
 (defcommand "touch" [session id]
   (let [job (get @jobs id)

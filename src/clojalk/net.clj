@@ -113,6 +113,56 @@
         (enqueue ch ["DELETED"])))
     (catch NumberFormatException e (enqueue ch ["BAD_FORMAT"]))))
 
+(defn on-bury [ch session args]
+  (try
+    (let [id (as-int (first args))
+          priority (as-int (second args))
+          job (bury session id priority)]
+      (if (nil? job)
+        (enqueue ch ["NOT_FOUND"])
+        (enqueue ch ["BURIED"])))
+    (catch NumberFormatException e (enqueue ch ["BAD_FORMAT"]))))
+
+(defn on-kick [ch session args]
+  (try
+    (let [bound (as-int (first args))
+          jobs-kicked (kick session bound)]
+      (enqueue ch ["KICKED" (str (count jobs-kicked))]))
+    (catch NumberFormatException e (enqueue ch ["BAD_FORMAT"]))))
+
+(defn on-touch [ch session args]
+  (try
+    (let [id (as-int (first args))
+          job (touch session id)]
+      (if (nil? job)
+        (enqueue ch ["NOT_FOUND"])
+        (enqueue ch ["TOUCHED"])))
+    (catch NumberFormatException e (enqueue ch ["BAD_FORMAT"]))))
+
+(defn on-peek [ch session args]
+  (try
+    (let [id (as-int (first args))
+          job (peek session id)]
+      (if (nil? job)
+        (enqueue ch ["NOT_FOUND"])
+        (enqueue ch ["FOUND" (str (:id job)) (:body job)])))
+    (catch NumberFormatException e (enqueue ch ["BAD_FORMAT"]))))
+
+(defn- peek-job [ch session func]
+  (let [job (func session)]
+    (if (nil? job)
+        (enqueue ch ["NOT_FOUND"])
+        (enqueue ch ["FOUND" (str (:id job)) (:body job)]))))
+
+(defn on-peek-ready [ch session]
+  (peek-job ch session peek-ready))
+
+(defn on-peek-delayed [ch session]
+  (peek-job ch session peek-delayed))
+
+(defn on-peek-buried [ch session]
+  (peek-job ch session peek-buried))
+
 (defn command-dispatcher [ch client-info cmd args]
   (let [remote-addr (:remote-addr client-info)]
     (case cmd
@@ -127,6 +177,13 @@
       "LIST-TUBES-WATCHED" (on-list-tubes-watched ch (get-or-create-session ch remote-addr :worker))
       "RELEASE" (on-release ch (get-or-create-session ch remote-addr :worker) args)
       "DELETE" (on-delete ch (get-or-create-session ch remote-addr :worker) args)
+      "BURY" (on-bury ch (get-or-create-session ch remote-addr :worker) args)
+      "KICK" (on-kick ch (get-or-create-session ch remote-addr :producer) args)
+      "TOUCH" (on-touch ch (get-or-create-session ch remote-addr :worker) args)
+      "PEEK" (on-peek ch (get-or-create-session ch remote-addr :producer) args)
+      "PEEK-READY" (on-peek-ready ch (get-or-create-session ch remote-addr :producer))
+      "PEEK-DELAYED" (on-peek-delayed ch (get-or-create-session ch remote-addr :producer))
+      "PEEK-BURIED" (on-peek-buried ch (get-or-create-session ch remote-addr :producer))
       )))
 
 (defn default-handler [ch client-info]
