@@ -12,6 +12,9 @@
 (defn not-nil [x]
   (not (nil? x)))
 
+(defn third [x]
+  (nth x 2))
+
 (defn uppercase [#^String s] (.toUpperCase s))
 
 (defn conj-all [x s]

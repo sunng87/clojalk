@@ -53,7 +53,11 @@
    "NOT_IGNORED" []
    "INTERNAL_ERROR" []
    "UNKNOWN_COMMAND" []
-   "OK" [body]})
+   "OK" [body]
+   "RELEASED" []
+   "BURIED" []
+   "NOT_FOUND" []
+   "DELETED" []})
 
 (defn- commands-mapping [cmd]
   (let [normalized-cmd (upper-case cmd)]

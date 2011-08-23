@@ -49,7 +49,7 @@
   (try
     (let [priority (as-int (first args))
           delay (as-int (second args))
-          ttr (as-int (nth args 2))
+          ttr (as-int (third args))
           body (last args)
           job (put session priority delay ttr body)]
       (if job
@@ -93,6 +93,26 @@
   (let [tubes (list-tubes-watched session)]
     (enqueue ch ["OK" (string/join "\r\n" (map string/as-str tubes))])))
 
+(defn on-release [ch session args]
+  (try
+    (let [id (as-int (first args))
+          priority (as-int (second args))
+          delay (as-int (third args))
+          job (release session id priority delay)]
+      (if (nil? job)
+        (enqueue ch ["NOT_FOUND"])
+        (enqueue ch ["RELEASED"])))
+    (catch NumberFormatException e (enqueue ch ["BAD_FORMAT"]))))
+
+(defn on-delete [ch session args]
+  (try
+    (let [id (as-int (first args))
+          job (delete session id)]
+      (if (nil? job)
+        (enqueue ch ["NOT_FOUND"])
+        (enqueue ch ["DELETED"])))
+    (catch NumberFormatException e (enqueue ch ["BAD_FORMAT"]))))
+
 (defn command-dispatcher [ch client-info cmd args]
   (let [remote-addr (:remote-addr client-info)]
     (case cmd
@@ -105,6 +125,8 @@
       "LIST-TUBES" (on-list-tubes ch)
       "LIST-TUBE-USED" (on-list-tube-used ch (get-or-create-session ch remote-addr :producer))
       "LIST-TUBES-WATCHED" (on-list-tubes-watched ch (get-or-create-session ch remote-addr :worker))
+      "RELEASE" (on-release ch (get-or-create-session ch remote-addr :worker) args)
+      "DELETE" (on-delete ch (get-or-create-session ch remote-addr :worker) args)
       )))
 
 (defn default-handler [ch client-info]

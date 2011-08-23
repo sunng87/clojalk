@@ -185,12 +185,14 @@
   (if-let [job (get @jobs id)]
     (let [tube ((:tube job) @tubes)
           updated-job (assoc job :priority priority :delay delay)]
-      (dosync
-        (if (> delay 0)
-          (alter (:delay_set tube) conj (assoc updated-job :state :delayed)) ;; delayed 
-          (set-job-as-ready (assoc updated-job :state :ready)))
-        (alter session assoc :incoming_job nil)
-        (alter session assoc :state :idle)))))
+      (do
+        (dosync
+          (if (> delay 0)
+            (alter (:delay_set tube) conj (assoc updated-job :state :delayed)) ;; delayed 
+            (set-job-as-ready (assoc updated-job :state :ready)))
+          (alter session assoc :incoming_job nil)
+          (alter session assoc :state :idle))
+        updated-job))))
 
 (defcommand "bury" [session id priority]
   (if-let [job (get @jobs id)]
