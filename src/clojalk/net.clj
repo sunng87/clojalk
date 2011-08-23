@@ -173,8 +173,10 @@
       "IGNORE" (on-ignore ch (get-or-create-session ch remote-addr :worker) args)
       "QUIT" (on-quit ch remote-addr)
       "LIST-TUBES" (on-list-tubes ch)
-      "LIST-TUBE-USED" (on-list-tube-used ch (get-or-create-session ch remote-addr :producer))
-      "LIST-TUBES-WATCHED" (on-list-tubes-watched ch (get-or-create-session ch remote-addr :worker))
+      "LIST-TUBE-USED" 
+        (on-list-tube-used ch (get-or-create-session ch remote-addr :producer))
+      "LIST-TUBES-WATCHED" 
+        (on-list-tubes-watched ch (get-or-create-session ch remote-addr :worker))
       "RELEASE" (on-release ch (get-or-create-session ch remote-addr :worker) args)
       "DELETE" (on-delete ch (get-or-create-session ch remote-addr :worker) args)
       "BURY" (on-bury ch (get-or-create-session ch remote-addr :worker) args)
@@ -182,8 +184,10 @@
       "TOUCH" (on-touch ch (get-or-create-session ch remote-addr :worker) args)
       "PEEK" (on-peek ch (get-or-create-session ch remote-addr :producer) args)
       "PEEK-READY" (on-peek-ready ch (get-or-create-session ch remote-addr :producer))
-      "PEEK-DELAYED" (on-peek-delayed ch (get-or-create-session ch remote-addr :producer))
-      "PEEK-BURIED" (on-peek-buried ch (get-or-create-session ch remote-addr :producer))
+      "PEEK-DELAYED" 
+        (on-peek-delayed ch (get-or-create-session ch remote-addr :producer))
+      "PEEK-BURIED" 
+        (on-peek-buried ch (get-or-create-session ch remote-addr :producer))
       )))
 
 (defn default-handler [ch client-info]
@@ -204,4 +208,4 @@
 (defn -main []
   (do
     (start-server 10000)
-    (println "server started")))
+    (println "Clojalk server started")))
