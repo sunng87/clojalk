@@ -25,7 +25,7 @@
   {;; request headers
    "QUIT" []
    "LIST-TUBES" []
-   "LIST-TUBES-USED" []
+   "LIST-TUBE-USED" []
    "LIST-TUBES-WATCHED" []
    "PEEK" [token]
    "PEEK-READY" []
@@ -52,7 +52,8 @@
    "BAD_FORMAT" []
    "NOT_IGNORED" []
    "INTERNAL_ERROR" []
-   "UNKNOWN_COMMAND" []})
+   "UNKNOWN_COMMAND" []
+   "OK" [body]})
 
 (defn- commands-mapping [cmd]
   (let [normalized-cmd (upper-case cmd)]

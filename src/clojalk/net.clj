@@ -1,6 +1,7 @@
 (ns clojalk.net
   (:refer-clojure :exclude [use peek])
   (:require [clojure.contrib.logging :as logging])
+  (:require [clojure.contrib.string :as string])
   (:use [clojalk core utils])
   (:use [clojalk.net.protocol])
   (:use [aleph.tcp])
@@ -80,6 +81,18 @@
   (close-session remote-addr)
   (close ch))
 
+(defn on-list-tubes [ch]
+  (let [tubes (list-tubes nil)]
+    (enqueue ch ["OK" (string/join "\r\n" (map string/as-str tubes))])))
+
+(defn on-list-tube-used [ch session]
+  (let [tube (list-tube-used session)]
+    (enqueue ch ["USING" (string/as-str tube)])))
+
+(defn on-list-tubes-watched [ch session]
+  (let [tubes (list-tubes-watched session)]
+    (enqueue ch ["OK" (string/join "\r\n" (map string/as-str tubes))])))
+
 (defn command-dispatcher [ch client-info cmd args]
   (let [remote-addr (:remote-addr client-info)]
     (case cmd
@@ -89,6 +102,9 @@
       "WATCH" (on-watch ch (get-or-create-session ch remote-addr :worker) args)
       "IGNORE" (on-ignore ch (get-or-create-session ch remote-addr :worker) args)
       "QUIT" (on-quit ch remote-addr)
+      "LIST-TUBES" (on-list-tubes ch)
+      "LIST-TUBE-USED" (on-list-tube-used ch (get-or-create-session ch remote-addr :producer))
+      "LIST-TUBES-WATCHED" (on-list-tubes-watched ch (get-or-create-session ch remote-addr :worker))
       )))
 
 (defn default-handler [ch client-info]
