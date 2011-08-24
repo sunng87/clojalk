@@ -301,7 +301,7 @@
           now (current-time)
           age (int (/ (- now (:created_at job)) 1000))
           time-left (if (contains? #{:delayed :reserved} state) 
-                      (int (/ (- now (:deadline_at job)) 1000)) 0)]
+                      (int (/ (- (:deadline_at job) now) 1000)) 0)]
       {:id (:id job)
        :tube (:tube job)
        :state state
@@ -313,7 +313,8 @@
        :timeouts (:timeouts job)
        :releases (:releases job)
        :buries (:buries job)
-       :kicks (:kicks job)})))
+       :kicks (:kicks job)
+       :time-left time-left})))
   
 ;; ------- scheduled tasks ----------
 (defn- update-delay-job-for-tube [now tube]

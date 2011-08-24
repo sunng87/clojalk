@@ -43,6 +43,7 @@
    "BURY" [token token]
    "KICK" [token]
    "PUT" [token token token body]
+   "STATS-JOB" [token]
    
    ;; response headers
    "INSERTED" [token-newline]

@@ -174,6 +174,16 @@
       (reserve-with-timeout session timeout))
     (catch NumberFormatException e (enqueue ch ["BAD_FORMAT"]))))
 
+(defn on-stats-job [ch args]
+  (try
+    (let [id (as-int (first args))
+          format-fn #(str (string/as-str (first %)) ": " (string/as-str (last %)))
+          stats (stats-job nil id)]
+      (if (nil? stats)
+        (enqueue ch ["NOT_FOUND"])
+        (enqueue ch ["OK" (string/join "\r\n" (map format-fn stats))])))
+    (catch NumberFormatException e (enqueue ch ["BAD_FORMAT"]))))
+
 (defn command-dispatcher [ch client-info msg]
   (let [remote-addr (:remote-addr client-info)
         cmd (first msg)
@@ -203,6 +213,7 @@
         (on-peek-buried ch (get-or-create-session ch remote-addr :producer))
       "RESERVE-WITH-TIMEOUT"
         (on-reserve-with-timeout ch (get-or-create-session ch remote-addr :worker) args)
+      "STATS-JOB" (on-stats-job ch args)
       (enqueue ch ["UNKNOWN_COMMAND"]))))
 
 (defn default-handler [ch client-info]
