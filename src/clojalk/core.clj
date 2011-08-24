@@ -42,8 +42,9 @@
   (let [id (next-id)
         now (current-time)
         created_at now
+        deadline_at (+ now (* 1000 delay))
         state (if (> delay 0) :delayed :ready)]
-    (struct Job id delay ttr priority created_at nil state tube body nil)))
+    (struct Job id delay ttr priority created_at deadline_at state tube body nil)))
 
 (defn open-session [type]
   (ref (struct Session type :default #{:default} nil nil)))
@@ -103,7 +104,7 @@
         (reserve-job s job)))))
 
 (defn- job-stats []
-  {"current-jobs-urgent" (count (filter #(< (:priority %)) (vals @jobs)))
+  {"current-jobs-urgent" (count (filter #(< (:priority %) 1024) (vals @jobs)))
    "current-jobs-ready" (count (filter #(= :ready (:state %)) (vals @jobs)))
    "current-jobs-reserved" (count (filter #(= :reserved (:state %)) (vals @jobs)))
    "current-jobs-delayed" (apply + (map #(count @(:delay_set %)) (vals @tubes)))
@@ -184,11 +185,15 @@
 (defcommand "release" [session id priority delay]
   (if-let [job (get @jobs id)]
     (let [tube ((:tube job) @tubes)
-          updated-job (assoc job :priority priority :delay delay)]
+          now (current-time)
+          deadline (+ now (* 1000 delay))
+          updated-job (assoc job :priority priority :delay delay :deadline_at deadline)]
       (do
         (dosync
           (if (> delay 0)
-            (alter (:delay_set tube) conj (assoc updated-job :state :delayed)) ;; delayed 
+            (do
+              (alter (:delay_set tube) conj (assoc updated-job :state :delayed))
+              (alter jobs dissoc id)) ;; delayed, also remove from jobs
             (set-job-as-ready (assoc updated-job :state :ready)))
           (alter session assoc :incoming_job nil)
           (alter session assoc :state :idle))
@@ -273,12 +278,12 @@
   
 ;; ------- scheduled tasks ----------
 (defn- update-delay-job-for-tube [now tube]
-  (let [ready-jobs (filter #(< (+ (:created_at %) (* (:delay %) 1000)) now) @(:delay_set tube))
-        updated-jobs (map #(assoc % :state :ready) ready-jobs)]
-    (dosync
-      (alter (:ready_set tube) conj-all updated-jobs)
-      (alter (:delay_set tube) disj-all ready-jobs)
-      (alter jobs merge (zipmap (map #(:id %) updated-jobs) updated-jobs)))))
+  (dosync
+    (let [ready-jobs (filter #(< (:deadline_at %) now) @(:delay_set tube))
+          updated-jobs (map #(assoc % :state :ready) ready-jobs)]
+      (doseq [job updated-jobs]        
+        (alter (:delay_set tube) disj job)
+        (set-job-as-ready job)))))
 
 (defn update-delay-job-task []
   (doseq [tube (vals @tubes)] (update-delay-job-for-tube (current-time) tube)))
@@ -289,9 +294,10 @@
           now (current-time)
           expired-jobs (filter #(> now (:deadline_at %)) reserved-jobs)]
       (doseq [job expired-jobs]
-        (let [tube ((:tube job) @tubes)]
-          (alter jobs assoc (:id job) (assoc job :state :ready))
-          (alter (:ready_set tube) conj (assoc job :state :ready)))))))
+        (let [tube ((:tube job) @tubes)
+              updated-job (assoc job :state :ready :reserver nil)]
+          (alter jobs assoc (:id job) updated-job)
+          (alter (:ready_set tube) conj updated-job))))))
   
 (defn update-paused-tube-task []
   (dosync
@@ -328,7 +334,6 @@
 
 (defn start-tasks []
   (schedule-task 5 
-                 [update-delay-job-for-tube 0 1] 
                  [update-delay-job-task 0 1] 
                  [update-expired-job-task 0 1] 
                  [update-paused-tube-task 0 1]
