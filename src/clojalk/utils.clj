@@ -1,4 +1,6 @@
-(ns clojalk.utils)
+(ns clojalk.utils
+  (:require [clojure.contrib.logging :as logging])
+  (:import [java.util.concurrent Executors TimeUnit]))
 
 (defn current-time []
   (System/currentTimeMillis))
@@ -34,3 +36,13 @@
 
 (defn remove-item [s i]
   (remove (fn [x] (= x i)) s))
+
+;;------- scheduler ------------------
+
+(defn- wrap-task [task]
+  (try task (catch Exception e (logging/warn "Exception caught on scheduled task" e))))
+
+(defn schedule-task [thread-pool-size & taskdefs]
+  (let [scheduler (. Executors newScheduledThreadPool thread-pool-size)]
+    (doseq [[task delay interval] taskdefs]
+      (.scheduleWithFixedDelay scheduler (wrap-task task) delay interval (. TimeUnit SECONDS)))))

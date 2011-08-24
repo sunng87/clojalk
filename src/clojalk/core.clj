@@ -326,3 +326,10 @@
             ;; it will be updated next time when it's reserved
             (alter session assoc :state :idle))))))) 
 
+(defn start-tasks []
+  (schedule-task 5 
+                 [update-delay-job-for-tube 0 1] 
+                 [update-delay-job-task 0 1] 
+                 [update-expired-job-task 0 1] 
+                 [update-paused-tube-task 0 1]
+                 [update-expired-waiting-session-task 0 1]))

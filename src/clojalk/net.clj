@@ -37,12 +37,16 @@
     (alter sessions dissoc remote-addr)))
 
 ;; reserve watcher
-(defn incoming-job-watcher [key identity old-value new-value]
+(defn reserve-watcher [key identity old-value new-value]
   (let [old-job (:incoming_job old-value)
         new-job (:incoming_job new-value)]
     (if (and new-job (not (= old-job new-job)))
       (let [ch (:channel new-value)]
-        (enqueue ch ["RESERVED" (str (:id new-job)) (:body new-job)])))))
+        (enqueue ch ["RESERVED" (str (:id new-job)) (:body new-job)]))))
+  (let [old-state (:state old-value)
+        new-state (:state new-value)]
+    (if (and (= :waiting old-state) (= :idle new-state))
+      (enqueue (:channel new-value) ["TIMED_OUT"]))))
 
 ;; server handlers
 (defn on-put [ch session args]
@@ -57,7 +61,7 @@
     (catch NumberFormatException e (enqueue ch ["BAD_FORMAT"]))))
 
 (defn on-reserve [ch session]
-  (add-watch session (:id session) incoming-job-watcher)
+  (add-watch session (:id session) reserve-watcher)
   (reserve session))
 
 (defn on-use [ch session args]
@@ -163,6 +167,13 @@
 (defn on-peek-buried [ch session]
   (peek-job ch session peek-buried))
 
+(defn on-reserve-with-timeout [ch session args]
+  (try
+    (let [timeout (as-int (first args))]
+      (add-watch session (:id session) reserve-watcher)
+      (reserve-with-timeout session timeout))
+    (catch NumberFormatException e (enqueue ch ["BAD_FORMAT"]))))
+
 (defn command-dispatcher [ch client-info msg]
   (let [remote-addr (:remote-addr client-info)
         cmd (first msg)
@@ -190,6 +201,8 @@
         (on-peek-delayed ch (get-or-create-session ch remote-addr :producer))
       "PEEK-BURIED" 
         (on-peek-buried ch (get-or-create-session ch remote-addr :producer))
+      "RESERVE-WITH-TIMEOUT"
+        (on-reserve-with-timeout ch (get-or-create-session ch remote-addr :worker) args)
       (enqueue ch ["UNKNOWN_COMMAND"]))))
 
 (defn default-handler [ch client-info]
@@ -209,5 +222,6 @@
 
 (defn -main []
   (do
+    (start-tasks)
     (start-server 10000)
     (println "Clojalk server started")))
