@@ -45,4 +45,5 @@
 (defn schedule-task [thread-pool-size & taskdefs]
   (let [scheduler (. Executors newScheduledThreadPool thread-pool-size)]
     (doseq [[task delay interval] taskdefs]
-      (.scheduleWithFixedDelay scheduler (wrap-task task) delay interval (. TimeUnit SECONDS)))))
+      (.scheduleWithFixedDelay scheduler (wrap-task task) delay interval (. TimeUnit SECONDS)))
+    scheduler))

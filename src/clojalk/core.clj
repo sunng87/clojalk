@@ -338,3 +338,6 @@
                  [update-expired-job-task 0 1] 
                  [update-paused-tube-task 0 1]
                  [update-expired-waiting-session-task 0 1]))
+
+(defn stop-tasks [scheduler]
+  (.shutdownNow scheduler))
