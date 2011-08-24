@@ -4,14 +4,16 @@
 
 ;; struct definition for Job
 ;; basic task unit
-(defstruct Job :id :delay :ttr :priority :created_at :deadline_at :state :tube :body :reserver)
+(defstruct Job :id :delay :ttr :priority :created_at 
+  :deadline_at :state :tube :body :reserver
+  :reserves :timeouts :releases :buries :kicks)
 
 ;; struct definition for Cube (similar to database in RDBMS)
 (defstruct Tube :name :ready_set :delay_set :buried_list 
   :waiting_list :paused :pause_deadline)
 
 ;; struct definition for Session (connection in beanstalkd)
-(defstruct Session :type :use :watch :deadline_at :state :incoming_job)
+(defstruct Session :id :type :use :watch :deadline_at :state :incoming_job)
 
 (defn- job-comparator [field j1 j2]
   (cond 
@@ -44,10 +46,13 @@
         created_at now
         deadline_at (+ now (* 1000 delay))
         state (if (> delay 0) :delayed :ready)]
-    (struct Job id delay ttr priority created_at deadline_at state tube body nil)))
+    (struct Job id delay ttr priority created_at 
+            deadline_at state tube body nil
+            0 0 0 0 0)))
 
-(defn open-session [type]
-  (ref (struct Session type :default #{:default} nil nil)))
+(defn open-session 
+  ([type] (open-session (uuid) type))
+  ([id type] (ref (struct Session id type :default #{:default} nil nil))))
 
 ;;------ clojalk globals -------
 
@@ -84,10 +89,12 @@
 
 (defn- reserve-job [session job]
   (let [tube ((:tube job) @tubes)
+        deadline (+ (current-time) (* (:ttr job) 1000))
         updated-top-job (assoc job
                                :state :reserved
                                :reserver session
-                               :deadline_at (+ (current-time) (* (:ttr job) 1000)))]
+                               :deadline_at deadline
+                               :reserves (inc (:reserves job)))]
     (do
       (alter (:ready_set tube) disj job)
       (alter jobs assoc (:id job) updated-top-job)
@@ -130,7 +137,9 @@
     (do
       (dosync
         (case (:state job)
-          :delayed (alter (:delay_set tube) conj job)
+          :delayed (do 
+                     (alter (:delay_set tube) conj job)
+                     (alter jobs assoc (:id job) job))
           :ready (set-job-as-ready job)))
       job)))
 
@@ -169,50 +178,56 @@
 
 (defcommand "delete" [session id]
   (if-let [job (get @jobs id)]
-    (let [tube ((:tube job) @tubes)]
-      (do
-        (dosync
-          (alter jobs dissoc id)
-          (case (:state job)
-            :ready (alter (:ready_set tube) disj job)
-            :buried (alter (:buried_list tube) (fn [v i] (vec (remove-item v i))) job)
-            () ;; default clause, do nothing
-            )
-          (alter session assoc :incoming_job nil)
-          (alter session assoc :state :idle))
-        (assoc job :state :invalid)))))
+    (if (and (contains? #{:reserved :buried} (:state job)) 
+             (= (:id @(:reserver job)) (:id @session))) 
+      (let [tube ((:tube job) @tubes)]
+        (do
+          (dosync
+            (alter jobs dissoc id)
+            (if (= (:state job) :buried)
+              (alter (:buried_list tube) 
+                     (fn [v i] (vec (remove-item v i))) job))
+            (alter session assoc :incoming_job nil)
+            (alter session assoc :state :idle))
+          (assoc job :state :invalid))))))
 
 (defcommand "release" [session id priority delay]
   (if-let [job (get @jobs id)]
-    (let [tube ((:tube job) @tubes)
-          now (current-time)
-          deadline (+ now (* 1000 delay))
-          updated-job (assoc job :priority priority :delay delay :deadline_at deadline)]
-      (do
-        (dosync
-          (if (> delay 0)
-            (do
-              (alter (:delay_set tube) conj (assoc updated-job :state :delayed))
-              (alter jobs dissoc id)) ;; delayed, also remove from jobs
-            (set-job-as-ready (assoc updated-job :state :ready)))
-          (alter session assoc :incoming_job nil)
-          (alter session assoc :state :idle))
-        updated-job))))
+    (if (and (= (:state job) :reserved) 
+             (= (:id @(:reserver job)) (:id @session)))
+      (let [tube ((:tube job) @tubes)
+            now (current-time)
+            deadline (+ now (* 1000 delay))
+            updated-job (assoc job :priority priority 
+                               :delay delay 
+                               :deadline_at deadline
+                               :releases (inc (:releases job)))]
+        (do
+          (dosync
+            (if (> delay 0)
+              (do
+                (alter (:delay_set tube) conj (assoc updated-job :state :delayed))
+                (alter jobs dissoc id)) ;; delayed, also remove from jobs
+              (set-job-as-ready (assoc updated-job :state :ready)))
+            (alter session assoc :incoming_job nil)
+            (alter session assoc :state :idle))
+          updated-job)))))
 
 (defcommand "bury" [session id priority]
   (if-let [job (get @jobs id)]
-    (let [tube ((:tube job) @tubes)
-          updated-job (assoc job :state :buried :priority priority)]
-      (do
-        (dosync
-          ;; remove the job from ready_set and append it into buried_list
-          ;; the job still can be found from jobs dictionary (for delete)
-          (alter (:ready_set tube) disj job) ;;for reserved job, nothing done in this operation
-          (alter (:buried_list tube) conj updated-job)
-          (alter jobs assoc (:id updated-job) updated-job)
-          (alter session assoc :incoming_job nil)
-          (alter session assoc :state :idle))
-        updated-job))))
+    (if (and (= (:state job) :reserved) 
+             (= (:id @(:reserver job)) (:id @session)))
+      (let [tube ((:tube job) @tubes)
+            updated-job (assoc job :state :buried 
+                               :priority priority
+                               :buries (inc (:buries job)))]
+        (do
+          (dosync
+            (alter (:buried_list tube) conj updated-job)
+            (alter jobs assoc (:id updated-job) updated-job)
+            (alter session assoc :incoming_job nil)
+            (alter session assoc :state :idle))
+          updated-job)))))
 
 ;; for USED tube only
 (defcommand "kick" [session bound]
@@ -234,17 +249,21 @@
               updated-kicked (map #(assoc % :state :ready) kicked)
               remained (vec (drop bound @(:buried_list tube)))]
           (ref-set (:buried_list tube) remained)
-          (doseq [job updated-kicked] (set-job-as-ready job))
+          (doseq [job updated-kicked] 
+            (set-job-as-ready (assoc job :kicks (inc (:kicks job)))))
           updated-kicked)))))
 
 (defcommand "touch" [session id]
-  (let [job (get @jobs id)
-        updated-job (assoc job :deadline_at (+ (current-time) (* (:ttr job) 1000)))]
-    (dosync
-      (if (= :reserved (:state updated-job)) ;; only reserved jobs could be touched
-        (do
-          (alter jobs assoc (:id updated-job) updated-job)
-          updated-job)))))
+  (if-let [job (get @jobs id)]
+    (if (and (= (:state job) :reserved) 
+             (= (:id @(:reserver job)) (:id @session)))
+      (let [deadline (+ (current-time) (* (:ttr job) 1000))
+            updated-job (assoc job :deadline_at deadline)]
+        (dosync
+          (if (= :reserved (:state updated-job)) ;; only reserved jobs could be touched
+            (do
+              (alter jobs assoc (:id updated-job) updated-job)
+              updated-job)))))))
 
 (defcommand "watch" [session tube-name]
   (let [tube-name-kw (keyword tube-name)]
@@ -275,6 +294,26 @@
       (ref-set (:paused tube) true)
       (ref-set (:pause_deadline tube) (+ timeout (current-time)))
       (alter tubes assoc (:name tube) tube))))
+
+(defcommand "stats-job" [session id]
+  (if-let [job (get @jobs id)]
+    (let [state (:state job)
+          now (current-time)
+          age (int (/ (- now (:created_at job)) 1000))
+          time-left (if (contains? #{:delayed :reserved} state) 
+                      (int (/ (- now (:deadline_at job)) 1000)) 0)]
+      {:id (:id job)
+       :tube (:tube job)
+       :state state
+       :pri (:priority job)
+       :age age
+       :delay (:delay job)
+       :ttr (:ttr job)
+       :reserves (:reserves job)
+       :timeouts (:timeouts job)
+       :releases (:releases job)
+       :buries (:buries job)
+       :kicks (:kicks job)})))
   
 ;; ------- scheduled tasks ----------
 (defn- update-delay-job-for-tube [now tube]
@@ -295,7 +334,9 @@
           expired-jobs (filter #(> now (:deadline_at %)) reserved-jobs)]
       (doseq [job expired-jobs]
         (let [tube ((:tube job) @tubes)
-              updated-job (assoc job :state :ready :reserver nil)]
+              updated-job (assoc job :state :ready 
+                                 :reserver nil
+                                 :timeouts (inc (:timeouts job)))]
           (alter jobs assoc (:id job) updated-job)
           (alter (:ready_set tube) conj updated-job))))))
   

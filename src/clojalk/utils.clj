@@ -1,5 +1,6 @@
 (ns clojalk.utils
   (:require [clojure.contrib.logging :as logging])
+  (:import [java.util UUID])
   (:import [java.util.concurrent Executors TimeUnit]))
 
 (defn current-time []
@@ -36,6 +37,9 @@
 
 (defn remove-item [s i]
   (remove (fn [x] (= x i)) s))
+
+(defn uuid []
+  (.toString (UUID/randomUUID)))
 
 ;;------- scheduler ------------------
 

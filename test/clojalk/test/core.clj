@@ -55,14 +55,15 @@
       (is (= 3 (:priority detached-job))))
     
     ;; bury and delete a job
-    (let [job (bury session-w (:id j3) 10)
+    (let [job (reserve session-w)
+          job (bury session-w (:id job) 10)
           detached-job (delete session-w (:id job))]
       (is (empty? @(:buried_list (:delete-test @tubes)))))
     
     ;; delete a ready job
     (delete session-w (:id j2))
-    ;; make sure tube is empty
-    (is (empty? @(:ready_set (:delete-test @tubes))))))
+    ;; make sure tube is not empty, ready job could not be deleted
+    (is (not-empty @(:ready_set (:delete-test @tubes))))))
     
 (deftest test-release
   (let [session-p (use (open-session :producer) "release-test")
@@ -109,7 +110,7 @@
         j1 (put session-p 9 0 100 "neat")
         j2 (put session-p 8 10 100 "nice")]
     (is (= "neat" (:body (peek session-p (:id j1)))))
-    (is (nil? (peek session-p (:id j2)))) ;;delayed job cannot be found with peek
+    (is (peek session-p (:id j2))) ;;delayed job can also be found with peek
     (is (nil? (peek session-p 1001)))))
 
 (deftest test-peek-ready
@@ -128,10 +129,11 @@
 
 (deftest test-bury
   (let [session-p (use (open-session :producer) "bury-test")
-        session-w (watch (open-session :worker) "buty-test")
+        session-w (watch (open-session :worker) "bury-test")
         j0 (put session-p 5 0 100 "nice")]
     
     ;; bury j0
+    (reserve session-w)
     (bury session-w (:id j0) 10)
     
     (is (= 1 (count @(:buried_list (:bury-test @tubes)))))
@@ -140,6 +142,7 @@
 
 (deftest test-kick
   (let [session-p (use (open-session :producer) "kick-test")
+        session-w (watch (open-session :worker) "kick-test")
         j0 (put session-p 10 0 100 "neat")
         j1 (put session-p 10 0 100 "nice")]
         
@@ -156,8 +159,11 @@
     (put session-p 25 20 100 "geek")
     
     ;; bury some jobs
-    (bury session-p (:id j0) 10)
-    (bury session-p (:id j1) 10)
+    (reserve session-w)
+    (reserve session-w)
+    
+    (bury session-w (:id j0) 10)
+    (bury session-w (:id j1) 10)
     
     (is (= 2 (count @(:buried_list (:kick-test @tubes)))))
     (is (= 1 (count @(:ready_set (:kick-test @tubes)))))

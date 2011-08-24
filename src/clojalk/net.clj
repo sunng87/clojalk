@@ -27,8 +27,8 @@
 (defn get-or-create-session [ch remote-addr type]
   (dosync
     (if-not (contains? @sessions remote-addr)
-      (let [new-session (open-session type)]
-        (alter new-session assoc :id remote-addr :channel ch)
+      (let [new-session (open-session remote-addr type)]
+        (alter new-session assoc :channel ch)
         (alter sessions assoc remote-addr new-session))))
   (@sessions remote-addr))
 
