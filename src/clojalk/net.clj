@@ -190,6 +190,16 @@
   (let [stats- (exec-cmd "stats" nil)]
     (enqueue ch ["OK" (format-stats stats-)])))
 
+(defn on-pause-tube [ch args]
+  (try
+    (let [tube-name (first args)
+          timeout (as-int (second args))
+          tube (exec-cmd "pause-tube" nil tube-name timeout)]
+      (if (nil? tube)
+        (enqueue ch ["NOT_FOUND"])
+        (enqueue ch ["PAUSED"])))
+    (catch NumberFormatException e (enqueue ch ["BAD_FORMAT"]))))
+
 (defn command-dispatcher [ch client-info msg]
   (let [remote-addr (:remote-addr client-info)
         cmd (first msg)
@@ -222,6 +232,7 @@
       "STATS-JOB" (on-stats-job ch args)
       "STATS-TUBE" (on-stats-tube ch args)
       "STATS" (on-stats ch)
+      "PAUSE-TUBE" (on-pause-tube ch args)
       (enqueue ch ["UNKNOWN_COMMAND"]))))
 
 (defn default-handler [ch client-info]

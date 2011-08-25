@@ -285,10 +285,10 @@
   (:watch @session))
 
 (defcommand "pause-tube" [session id timeout]
-  (let [tube ((keyword id) @tubes)]
+  (if-let [tube ((keyword id) @tubes)]
     (dosync
       (alter tube assoc :paused true)
-      (alter tube assoc :pause_deadline (+ timeout (current-time)))
+      (alter tube assoc :pause_deadline (+ (* timeout 1000) (current-time)))
       (alter tube assoc :pauses (inc (:pauses @tube))))))
 
 (defcommand "stats-job" [session id]

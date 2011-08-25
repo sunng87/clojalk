@@ -64,7 +64,8 @@
    "KICKED" [token-newline]
    "TOUCHED" [token-newline]
    "FOUND" [token-space body]
-   "TIMED_OUT" [token-newline]})
+   "TIMED_OUT" [token-newline]
+   "PAUSED" [token-newline]})
 
 (defn- commands-mapping [cmd]
   (let [normalized-cmd (upper-case cmd)]
