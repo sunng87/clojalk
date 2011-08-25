@@ -43,10 +43,17 @@
   (.toString (UUID/randomUUID)))
 
 (defn line-based-string [x]
-  (str (string/as-str x) "\r\n"))
+  (str "- " (string/as-str x) "\n"))
+
+(defn format-coll [x]
+  (str "---\n"
+       (string/join ""
+                    (map line-based-string x))))
 
 (defn format-stats [x]
-  (string/join "" (map #(str (string/as-str (first %)) ": " (string/as-str (last %)) "\r\n") x)))
+  (str "---\n" 
+       (string/join "" 
+                    (map #(str (string/as-str (first %)) ": " (string/as-str (last %)) "\n") x))))
 
 ;;------- scheduler ------------------
 

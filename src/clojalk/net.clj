@@ -87,7 +87,7 @@
 
 (defn on-list-tubes [ch]
   (let [tubes (list-tubes nil)]
-    (enqueue ch ["OK" (string/join "" (map line-based-string tubes))])))
+    (enqueue ch ["OK" (format-coll tubes)])))
 
 (defn on-list-tube-used [ch session]
   (let [tube (list-tube-used session)]
@@ -95,7 +95,7 @@
 
 (defn on-list-tubes-watched [ch session]
   (let [tubes (list-tubes-watched session)]
-    (enqueue ch ["OK" (string/join "\r\n" (map line-based-string tubes))])))
+    (enqueue ch ["OK" (format-coll tubes)])))
 
 (defn on-release [ch session args]
   (try
