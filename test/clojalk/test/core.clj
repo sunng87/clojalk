@@ -302,7 +302,7 @@
     
     (reserve session-w)
     (let [stats (stats-tube nil tube-name)]
-      (is (= (:name stats) tube-name))
+      (is (= (name (:name stats)) tube-name))
       (is (= (:current-jobs-urgent stats) 1))
       (is (= (:current-jobs-delayed stats) 1))
       (is (= (:current-jobs-reserved stats) 1))
