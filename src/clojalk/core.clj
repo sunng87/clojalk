@@ -28,14 +28,14 @@
   (partial job-comparator :delay))
 
 (defn make-tube [name]
-  (struct Tube (keyword name) ; name
-          (ref (sorted-set-by priority-comparator)) ; ready_set
-          (ref (sorted-set-by delay-comparator)) ; delay_set
-          (ref []) ; buried_list
-          (ref []) ; waiting queue
-          (ref false) ; paused state
-          (ref -1) ; pause timeout
-          (ref 0))) 
+  (ref (struct Tube (keyword name) ; name
+          (sorted-set-by priority-comparator) ; ready_set
+          (sorted-set-by delay-comparator) ; delay_set
+          [] ; buried_list
+          [] ; waiting queue
+          false ; paused state
+          -1 ; pause timeout
+          0))) ; pause command counter
 
 (defonce id-counter (atom 0))
 (defn next-id []
@@ -66,27 +66,25 @@
 (defn- top-ready-job [session]
   (let [watchlist (:watch @session)
         watch-tubes (filter not-nil (map #(get @tubes %) watchlist))
-        watch-tubes (filter #(false? @(:paused %)) watch-tubes)
-        top-jobs (filter not-nil (map #(first @(:ready_set %)) watch-tubes))]
+        watch-tubes (filter #(false? (:paused @%)) watch-tubes)
+        top-jobs (filter not-nil (map #(first (:ready_set @%)) watch-tubes))]
     (first (apply sorted-set-by (conj top-jobs priority-comparator)))))
 
 (defn- enqueue-waiting-session [session timeout]
-  (let [watch-tubes (filter #(contains? (:watch @session) (:name %)) (vals @tubes))
+  (let [watch-tubes (filter #(contains? (:watch @session) (:name @%)) (vals @tubes))
         deadline_at (if (nil? timeout) nil (+ (current-time) (* timeout 1000)))]
     (doseq [tube watch-tubes]
       (do
-        (alter (:waiting_list tube) conj session)
+        (alter tube assoc :waiting_list (conj (:waiting_list @tube) session))
         (alter session assoc 
                :state :waiting 
-               :deadline_at deadline_at)
-        (alter tubes assoc (:name tube) tube)))))
+               :deadline_at deadline_at)))))
 
 (defn- dequeue-waiting-session [session]
-  (let [watch-tubes (filter #(contains? (:watch @session) (:name %)) (vals @tubes))]
+  (let [watch-tubes (filter #(contains? (:watch @session) (:name @%)) (vals @tubes))]
     (doseq [tube watch-tubes]
-      (alter (:waiting_list tube) remove-item session)
-      (alter session assoc :state :working)
-      (alter tubes assoc (:name tube) tube))))
+      (alter tube assoc :waiting_list (remove-item (:waiting_list @tube) session))
+      (alter session assoc :state :working))))
 
 (defn- reserve-job [session job]
   (let [tube ((:tube job) @tubes)
@@ -97,7 +95,7 @@
                                :deadline_at deadline
                                :reserves (inc (:reserves job)))]
     (do
-      (alter (:ready_set tube) disj job)
+      (alter tube assoc :ready_set (disj (:ready_set @tube) job))
       (alter jobs assoc (:id job) updated-top-job)
       (dequeue-waiting-session session)
       (alter session assoc :incoming_job updated-top-job)
@@ -107,16 +105,16 @@
   (let [tube ((:tube job) @tubes)]
     (do
       (alter jobs assoc (:id job) job)
-      (alter (:ready_set tube) conj job)
-      (if-let [s (first @(:waiting_list tube))]
+      (alter tube assoc :ready_set (conj (:ready_set @tube) job))
+      (if-let [s (first (:waiting_list @tube))]
         (reserve-job s job)))))
 
 (defn- job-stats []
   {"current-jobs-urgent" (count (filter #(< (:priority %) 1024) (vals @jobs)))
    "current-jobs-ready" (count (filter #(= :ready (:state %)) (vals @jobs)))
    "current-jobs-reserved" (count (filter #(= :reserved (:state %)) (vals @jobs)))
-   "current-jobs-delayed" (apply + (map #(count @(:delay_set %)) (vals @tubes)))
-   "current-jobs-buried" (apply + (map #(count @(:buried_list %)) (vals @tubes)))})
+   "current-jobs-delayed" (apply + (map #(count (:delay_set @%)) (vals @tubes)))
+   "current-jobs-buried" (apply + (map #(count (:buried_list @%)) (vals @tubes)))})
 
 ;;-------- macros ----------
 
@@ -134,12 +132,12 @@
 
 (defcommand "put" [session priority delay ttr body]
   (let [tube ((:use @session) @tubes)
-        job (make-job priority delay ttr (:name tube) body)]
+        job (make-job priority delay ttr (:name @tube) body)]
     (do
       (dosync
         (case (:state job)
           :delayed (do 
-                     (alter (:delay_set tube) conj job)
+                     (alter tube assoc :delay_set (conj (:delay_set @tube) job))
                      (alter jobs assoc (:id job) job))
           :ready (set-job-as-ready job)))
       job)))
@@ -150,15 +148,15 @@
 ;; peek-* are producer tasks, peek job from current USED tubes (not watches)
 (defcommand "peek-ready" [session]
   (let [tube ((:use @session) @tubes)]
-    (first @(:ready_set tube))))
+    (first (:ready_set @tube))))
 
 (defcommand "peek-delayed" [session]
   (let [tube ((:use @session) @tubes)]
-    (first @(:delay_set tube))))
+    (first (:delay_set @tube))))
 
 (defcommand "peek-buried" [session]
   (let [tube ((:use @session) @tubes)]
-    (first @(:buried_list tube))))
+    (first (:buried_list @tube))))
 
 (defcommand "reserve-with-timeout" [session timeout]
   (dosync
@@ -186,8 +184,8 @@
           (dosync
             (alter jobs dissoc id)
             (if (= (:state job) :buried)
-              (alter (:buried_list tube) 
-                     (fn [v i] (vec (remove-item v i))) job))
+              (alter tube assoc :buried_list 
+                     (vec (remove-item (:buried_list @tube) job))))
             (alter session assoc :incoming_job nil)
             (alter session assoc :state :idle))
           (assoc job :state :invalid))))))
@@ -207,8 +205,8 @@
           (dosync
             (if (> delay 0)
               (do
-                (alter (:delay_set tube) conj (assoc updated-job :state :delayed))
-                (alter jobs dissoc id)) ;; delayed, also remove from jobs
+                (alter tube assoc 
+                       :delay_set (conj (:delay_set @tube) (assoc updated-job :state :delayed))))
               (set-job-as-ready (assoc updated-job :state :ready)))
             (alter session assoc :incoming_job nil)
             (alter session assoc :state :idle))
@@ -224,7 +222,7 @@
                                :buries (inc (:buries job)))]
         (do
           (dosync
-            (alter (:buried_list tube) conj updated-job)
+            (alter tube assoc :buried_list (conj (:buried_list @tube) updated-job))
             (alter jobs assoc (:id updated-job) updated-job)
             (alter session assoc :incoming_job nil)
             (alter session assoc :state :idle))
@@ -234,22 +232,22 @@
 (defcommand "kick" [session bound]
   (let [tube ((:use @session) @tubes)]
     (dosync
-      (if (empty? @(:buried_list tube))
+      (if (empty? (:buried_list @tube))
         ;; no jobs buried, kick from delay set
-        (let [kicked (take bound @(:delay_set tube))
+        (let [kicked (take bound (:delay_set @tube))
               updated-kicked (map #(assoc % :state :ready) kicked)
-              remained (drop bound @(:delay_set tube))
+              remained (drop bound (:delay_set @tube))
               remained-set (apply sorted-set-by delay-comparator remained)]
           
-          (ref-set (:delay_set tube) remained-set)
+          (alter tube assoc :delay_set remained-set)
           (doseq [job updated-kicked] (set-job-as-ready job))
           updated-kicked)
         
         ;; kick at most bound jobs from buried list
-        (let [kicked (take bound @(:buried_list tube))
+        (let [kicked (take bound (:buried_list @tube))
               updated-kicked (map #(assoc % :state :ready) kicked)
-              remained (vec (drop bound @(:buried_list tube)))]
-          (ref-set (:buried_list tube) remained)
+              remained (vec (drop bound (:buried_list @tube)))]
+          (alter tube assoc :buried_list remained)
           (doseq [job updated-kicked] 
             (set-job-as-ready (assoc job :kicks (inc (:kicks job)))))
           updated-kicked)))))
@@ -292,10 +290,9 @@
 (defcommand "pause-tube" [session id timeout]
   (let [tube ((keyword id) @tubes)]
     (dosync
-      (ref-set (:paused tube) true)
-      (ref-set (:pause_deadline tube) (+ timeout (current-time)))
-      (alter (:pauses tube) inc)
-      (alter tubes assoc (:name tube) tube))))
+      (alter tube assoc :paused true)
+      (alter tube assoc :pause_deadline (+ timeout (current-time)))
+      (alter tube assoc :pauses (inc (:pauses @tube))))))
 
 (defcommand "stats-job" [session id]
   (if-let [job (get @jobs id)]
@@ -320,33 +317,33 @@
 
 (defcommand "stats-tube" [session name]
   (if-let [tube (get @tubes (keyword name))]
-    (let [paused @(:paused tube)
+    (let [paused (:paused @tube)
           now (current-time)
-          pause-time-left (int (/ (- @(:pause_deadline tube) now) 1000))
+          pause-time-left (int (/ (- (:pause_deadline @tube) now) 1000))
           pause-time-left (if paused pause-time-left 0)
-          jobs-func #(= (:tube %) (:name tube))
+          jobs-func #(= (:tube %) (:name @tube))
           jobs-of-tube (filter jobs-func (vals @jobs))
           jobs-reserved (filter #(= (:state %) :reserved) jobs-of-tube)
-          jobs-urgent (filter #(< (:priority %) 1024) @(:ready_set tube))]
+          jobs-urgent (filter #(< (:priority %) 1024) (:ready_set @tube))]
       {:name (:name tube)
        :current-jobs-urgent (count jobs-urgent)
-       :current-jobs-ready (count @(:ready_set tube))
-       :current-jobs-delayed (count @(:delay_set tube))
-       :current-jobs-buried (count @(:buried_list tube))
+       :current-jobs-ready (count (:ready_set @tube))
+       :current-jobs-delayed (count (:delay_set @tube))
+       :current-jobs-buried (count (:buried_list @tube))
        :current-jobs-reserved (count jobs-reserved)
        :total-jobs (count jobs-of-tube)
-       :current-waiting (count @(:waiting_list tube))
-       :pause @(:paused tube)
-       :cmd-pause-tube @(:pauses tube)
+       :current-waiting (count (:waiting_list @tube))
+       :pause (:paused @tube)
+       :cmd-pause-tube (:pauses @tube)
        :pause-time-left pause-time-left})))
   
 ;; ------- scheduled tasks ----------
 (defn- update-delay-job-for-tube [now tube]
   (dosync
-    (let [ready-jobs (filter #(< (:deadline_at %) now) @(:delay_set tube))
+    (let [ready-jobs (filter #(< (:deadline_at %) now) (:delay_set @tube))
           updated-jobs (map #(assoc % :state :ready) ready-jobs)]
       (doseq [job updated-jobs]        
-        (alter (:delay_set tube) disj job)
+        (alter tube assoc :delay_set (disj (:delay_set @tube) job))
         (set-job-as-ready job)))))
 
 (defn update-delay-job-task []
@@ -363,36 +360,35 @@
                                  :reserver nil
                                  :timeouts (inc (:timeouts job)))]
           (alter jobs assoc (:id job) updated-job)
-          (alter (:ready_set tube) conj updated-job))))))
+          (alter tube assoc :ready_set (conj (:ready_set @tube) updated-job)))))))
   
 (defn update-paused-tube-task []
   (dosync
     (let [all-tubes (vals @tubes)
-          paused-tubes (filter #(true? @(:paused %)) all-tubes)
+          paused-tubes (filter #(true? (:paused @%)) all-tubes)
           now (current-time)
-          expired-tubes (filter #(> now @(:pause_deadline %)) paused-tubes)]
+          expired-tubes (filter #(> now (:pause_deadline @%)) paused-tubes)]
       (doseq [t expired-tubes]
         (do 
-          (ref-set (:paused t) false)
-          (alter tubes assoc (:name t) t)
+          (alter t assoc :paused false)
           
           ;; handle waiting session
-          (loop [s (first @(:waiting_list t))
-                 j (first @(:ready_set t))]
+          (loop [s (first (:waiting_list @t))
+                 j (first (:ready_set @t))]
             (if (and s j)
               (do
                 (reserve-job s j)
-                (recur (first @(:waiting_list t)) (first @(:ready_set t)))))))))))
+                (recur (first (:waiting_list @t)) (first (:ready_set @t)))))))))))
 
 (defn update-expired-waiting-session-task []
   (dosync
     (doseq
       [tube (vals @tubes)]
       (let [now (current-time)
-            waiting_list @(:waiting_list tube)
+            waiting_list (:waiting_list @tube)
             active-func (fn [s] (or (nil? (:deadline_at @s)) (< now (:deadline_at @s))))]
         (do
-          (ref-set (:waiting_list tube) (vec (filter active-func waiting_list)))
+          (alter tube assoc :waiting_list (vec (filter active-func waiting_list)))
           (doseq [session (filter #(false? (active-func %)) waiting_list)] 
             ;; we don't update deadline_at on this task, 
             ;; it will be updated next time when it's reserved
