@@ -325,7 +325,7 @@
           jobs-of-tube (filter jobs-func (vals @jobs))
           jobs-reserved (filter #(= (:state %) :reserved) jobs-of-tube)
           jobs-urgent (filter #(< (:priority %) 1024) (:ready_set @tube))]
-      {:name (:name tube)
+      {:name (:name @tube)
        :current-jobs-urgent (count jobs-urgent)
        :current-jobs-ready (count (:ready_set @tube))
        :current-jobs-delayed (count (:delay_set @tube))
