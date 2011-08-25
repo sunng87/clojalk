@@ -62,6 +62,10 @@
 (defonce commands (ref {}))
 (defonce start-at (current-time))
 
+;; sessions 
+(defonce sessions (ref {}))
+(defonce job-timeouts (ref 0))
+
 ;;------ functions -------
 (defn- top-ready-job [session]
   (let [watchlist (:watch @session)
@@ -109,22 +113,15 @@
       (if-let [s (first (:waiting_list @tube))]
         (reserve-job s job)))))
 
-(defn- job-stats []
-  {"current-jobs-urgent" (count (filter #(< (:priority %) 1024) (vals @jobs)))
-   "current-jobs-ready" (count (filter #(= :ready (:state %)) (vals @jobs)))
-   "current-jobs-reserved" (count (filter #(= :reserved (:state %)) (vals @jobs)))
-   "current-jobs-delayed" (apply + (map #(count (:delay_set @%)) (vals @tubes)))
-   "current-jobs-buried" (apply + (map #(count (:buried_list @%)) (vals @tubes)))})
-
 ;;-------- macros ----------
 
 (defmacro defcommand [name args & body]
-  (dosync (alter commands assoc (str "cmd-" name) (atom 0)))
+  (dosync (alter commands assoc (keyword (str "cmd-" name)) (atom 0)))
   `(defn ~(symbol name) ~args ~@body))
 
 (defmacro exec-cmd [cmd & args]
   `(do
-     (if-let [cnt# (get @commands (str "cmd-" ~cmd))]
+     (if-let [cnt# (get @commands (keyword (str "cmd-" ~cmd)))]
        (swap! cnt# inc))
      (~(symbol cmd) ~@args)))
 
@@ -336,6 +333,33 @@
        :pause (:paused @tube)
        :cmd-pause-tube (:pauses @tube)
        :pause-time-left pause-time-left})))
+
+(defcommand "stats" [session]
+  (let [all-jobs (vals @jobs)
+        reserved-jobs (filter #(= :reserved (:state %)) all-jobs)
+        ready-jobs (filter #(= :ready (:state %)) all-jobs)
+        urgent-jobs (filter #(< (:priority %) 1024) ready-jobs)
+        delayed-jobs (filter #(= :delayed (:state %)) all-jobs)
+        buried-jobs (filter #(= :buried (:state %)) all-jobs)
+        all-sessions (vals @sessions)
+        worker-sessions (filter #(= :worker (:type @%)) all-sessions)
+        waiting-sessions (filter #(= :waiting (:state @%)) worker-sessions)
+        producer-sessions (filter #(= :producer (:type @%)) all-sessions)
+        all-tubes (vals @tubes)
+        commands-stats @commands]
+    (merge (zipmap (keys commands-stats) (map deref (vals commands-stats)))
+           {:job-timeouts @job-timeouts
+            :current-tubes (count all-tubes)
+            :current-connections (count all-sessions)
+            :current-producers (count producer-sessions)
+            :current-workers (count worker-sessions)
+            :current-waiting (count waiting-sessions)
+            :uptime (int (/ (- (current-time) start-at) 1000))
+            :current-jobs-urgent (count urgent-jobs)
+            :current-jobs-ready (count ready-jobs)
+            :current-jobs-reserved (count reserved-jobs)
+            :current-jobs-delayed (count delayed-jobs)
+            :current-jobs-buried (count buried-jobs)})))
   
 ;; ------- scheduled tasks ----------
 (defn- update-delay-job-for-tube [now tube]
@@ -360,7 +384,8 @@
                                  :reserver nil
                                  :timeouts (inc (:timeouts job)))]
           (alter jobs assoc (:id job) updated-job)
-          (alter tube assoc :ready_set (conj (:ready_set @tube) updated-job)))))))
+          (alter tube assoc :ready_set (conj (:ready_set @tube) updated-job))
+          (alter job-timeouts inc))))))
   
 (defn update-paused-tube-task []
   (dosync

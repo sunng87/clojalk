@@ -45,6 +45,7 @@
    "PUT" [token token token body]
    "STATS-JOB" [token]
    "STATS-TUBE" [token]
+   "STATS" []
    
    ;; response headers
    "INSERTED" [token-newline]

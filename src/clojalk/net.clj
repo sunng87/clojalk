@@ -21,9 +21,6 @@
          
            (enqueue ch ["UNKNOWN_COMMAND"]))))))
 
-;; sessions 
-(defonce sessions (ref {}))
-
 (defn get-or-create-session [ch remote-addr type]
   (dosync
     (if-not (contains? @sessions remote-addr)
@@ -55,29 +52,29 @@
           delay (as-int (second args))
           ttr (as-int (third args))
           body (last args)
-          job (put session priority delay ttr body)]
+          job (exec-cmd "put" session priority delay ttr body)]
       (if job
         (enqueue ch ["INSERTED" (str (:id job))])))
     (catch NumberFormatException e (enqueue ch ["BAD_FORMAT"]))))
 
 (defn on-reserve [ch session]
   (add-watch session (:id session) reserve-watcher)
-  (reserve session))
+  (exec-cmd "reserve" session))
 
 (defn on-use [ch session args]
   (let [tube-name (first args)]
-    (use session tube-name)
+    (exec-cmd "use" session tube-name)
     (enqueue ch ["USING" tube-name])))
 
 (defn on-watch [ch session args]
   (let [tube-name (first args)]
-    (watch session tube-name)
+    (exec-cmd "watch" session tube-name)
     (enqueue ch ["WATCHING" (str (count (:watch @session)))])))
 
 (defn on-ignore [ch session args]
   (if (> (count (:watch @session)) 1)
     (let [tube-name (first args)]
-      (ignore session tube-name)
+      (exec-cmd "ignore" session tube-name)
       (enqueue ch ["WATCHING" (str (count (:watch @session)))]))
     (enqueue ch ["NOT_IGNORED"])))
 
@@ -86,15 +83,15 @@
   (close ch))
 
 (defn on-list-tubes [ch]
-  (let [tubes (list-tubes nil)]
+  (let [tubes (exec-cmd "list-tubes" nil)]
     (enqueue ch ["OK" (format-coll tubes)])))
 
 (defn on-list-tube-used [ch session]
-  (let [tube (list-tube-used session)]
+  (let [tube (exec-cmd "list-tube-used" session)]
     (enqueue ch ["USING" (string/as-str tube)])))
 
 (defn on-list-tubes-watched [ch session]
-  (let [tubes (list-tubes-watched session)]
+  (let [tubes (exec-cmd "list-tubes-watched" session)]
     (enqueue ch ["OK" (format-coll tubes)])))
 
 (defn on-release [ch session args]
@@ -102,7 +99,7 @@
     (let [id (as-int (first args))
           priority (as-int (second args))
           delay (as-int (third args))
-          job (release session id priority delay)]
+          job (exec-cmd "release" session id priority delay)]
       (if (nil? job)
         (enqueue ch ["NOT_FOUND"])
         (enqueue ch ["RELEASED"])))
@@ -111,7 +108,7 @@
 (defn on-delete [ch session args]
   (try
     (let [id (as-int (first args))
-          job (delete session id)]
+          job (exec-cmd "delete" session id)]
       (if (nil? job)
         (enqueue ch ["NOT_FOUND"])
         (enqueue ch ["DELETED"])))
@@ -121,7 +118,7 @@
   (try
     (let [id (as-int (first args))
           priority (as-int (second args))
-          job (bury session id priority)]
+          job (exec-cmd "bury" session id priority)]
       (if (nil? job)
         (enqueue ch ["NOT_FOUND"])
         (enqueue ch ["BURIED"])))
@@ -130,14 +127,14 @@
 (defn on-kick [ch session args]
   (try
     (let [bound (as-int (first args))
-          jobs-kicked (kick session bound)]
+          jobs-kicked (exec-cmd "kick" session bound)]
       (enqueue ch ["KICKED" (str (count jobs-kicked))]))
     (catch NumberFormatException e (enqueue ch ["BAD_FORMAT"]))))
 
 (defn on-touch [ch session args]
   (try
     (let [id (as-int (first args))
-          job (touch session id)]
+          job (exec-cmd "touch" session id)]
       (if (nil? job)
         (enqueue ch ["NOT_FOUND"])
         (enqueue ch ["TOUCHED"])))
@@ -146,48 +143,52 @@
 (defn on-peek [ch session args]
   (try
     (let [id (as-int (first args))
-          job (peek session id)]
+          job (exec-cmd "peek" session id)]
       (if (nil? job)
         (enqueue ch ["NOT_FOUND"])
         (enqueue ch ["FOUND" (str (:id job)) (:body job)])))
     (catch NumberFormatException e (enqueue ch ["BAD_FORMAT"]))))
 
 (defn- peek-job [ch session func]
-  (let [job (func session)]
+  (let [job (exec-cmd func session)]
     (if (nil? job)
         (enqueue ch ["NOT_FOUND"])
         (enqueue ch ["FOUND" (str (:id job)) (:body job)]))))
 
 (defn on-peek-ready [ch session]
-  (peek-job ch session peek-ready))
+  (peek-job ch session "peek-ready"))
 
 (defn on-peek-delayed [ch session]
-  (peek-job ch session peek-delayed))
+  (peek-job ch session "peek-delayed"))
 
 (defn on-peek-buried [ch session]
-  (peek-job ch session peek-buried))
+  (peek-job ch session "peek-buried"))
 
 (defn on-reserve-with-timeout [ch session args]
   (try
     (let [timeout (as-int (first args))]
       (add-watch session (:id session) reserve-watcher)
-      (reserve-with-timeout session timeout))
+      (exec-cmd "reserve-with-timeout" session timeout))
     (catch NumberFormatException e (enqueue ch ["BAD_FORMAT"]))))
 
 (defn on-stats-job [ch args]
   (try
     (let [id (as-int (first args))
-          stats (stats-job nil id)]
+          stats (exec-cmd "stats-job" nil id)]
       (if (nil? stats)
         (enqueue ch ["NOT_FOUND"])
         (enqueue ch ["OK" (format-stats stats)])))
     (catch NumberFormatException e (enqueue ch ["BAD_FORMAT"]))))
 
 (defn on-stats-tube [ch args]
-  (let [stats (stats-tube nil (first args))]
+  (let [stats (exec-cmd "stats-tube" nil (first args))]
     (if (nil? stats)
       (enqueue ch ["NOT_FOUND"])
       (enqueue ch ["OK" (format-stats stats)]))))
+
+(defn on-stats [ch]
+  (let [stats- (exec-cmd "stats" nil)]
+    (enqueue ch ["OK" (format-stats stats-)])))
 
 (defn command-dispatcher [ch client-info msg]
   (let [remote-addr (:remote-addr client-info)
@@ -220,6 +221,7 @@
         (on-reserve-with-timeout ch (get-or-create-session ch remote-addr :worker) args)
       "STATS-JOB" (on-stats-job ch args)
       "STATS-TUBE" (on-stats-tube ch args)
+      "STATS" (on-stats ch)
       (enqueue ch ["UNKNOWN_COMMAND"]))))
 
 (defn default-handler [ch client-info]
