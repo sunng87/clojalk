@@ -1,5 +1,6 @@
 (ns clojalk.utils
   (:require [clojure.contrib.logging :as logging])
+  (:require [clojure.contrib.string :as string])
   (:import [java.util UUID])
   (:import [java.util.concurrent Executors TimeUnit]))
 
@@ -40,6 +41,12 @@
 
 (defn uuid []
   (.toString (UUID/randomUUID)))
+
+(defn line-based-string [x]
+  (str (string/as-str x) "\r\n"))
+
+(defn format-stats [x]
+  (string/join "" (map #(str (string/as-str (first %)) ": " (string/as-str (last %)) "\r\n") x)))
 
 ;;------- scheduler ------------------
 

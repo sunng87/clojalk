@@ -44,6 +44,7 @@
    "KICK" [token]
    "PUT" [token token token body]
    "STATS-JOB" [token]
+   "STATS-TUBE" [token]
    
    ;; response headers
    "INSERTED" [token-newline]

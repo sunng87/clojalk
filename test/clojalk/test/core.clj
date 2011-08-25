@@ -290,3 +290,25 @@
     (update-expired-waiting-session-task)
     (is (empty? @(:waiting_list (:test-reserve-timeout @tubes))))
     (is (= :idle (:state @session-w)))))
+
+(deftest test-stats-tube
+  (let [tube-name "test-stats-tube"
+        session-p (use (open-session :producer) tube-name)
+        session-w (watch (open-session :worker) tube-name)]
+    ;; put some jobs
+    (put session-p 2000 0 5000 "nice")
+    (put session-p 2500 0 5000 "neat")
+    (put session-p 2500 10 5000 "loop")
+    (put session-p 1000 0 5000 "geek")
+    (put session-p 999 0 400 "joke")
+    
+    (reserve session-w)
+    (let [stats (stats-tube nil tube-name)]
+      (is (= (:current-jobs-urgent stats) 1))
+      (is (= (:current-jobs-delayed stats) 1))
+      (is (= (:current-jobs-reserved stats) 1))
+      (is (= (:total-jobs stats) 5))
+      (is (false? (:pause stats)))
+      (is (zero? (:pause-time-left stats))))))
+
+

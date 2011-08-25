@@ -8,9 +8,9 @@
   :deadline_at :state :tube :body :reserver
   :reserves :timeouts :releases :buries :kicks)
 
-;; struct definition for Cube (similar to database in RDBMS)
+;; struct definition for Tube (similar to database in RDBMS)
 (defstruct Tube :name :ready_set :delay_set :buried_list 
-  :waiting_list :paused :pause_deadline)
+  :waiting_list :paused :pause_deadline :pauses)
 
 ;; struct definition for Session (connection in beanstalkd)
 (defstruct Session :id :type :use :watch :deadline_at :state :incoming_job)
@@ -34,7 +34,8 @@
           (ref []) ; buried_list
           (ref []) ; waiting queue
           (ref false) ; paused state
-          (ref -1))) ; pause timeout
+          (ref -1) ; pause timeout
+          (ref 0))) 
 
 (defonce id-counter (atom 0))
 (defn next-id []
@@ -293,6 +294,7 @@
     (dosync
       (ref-set (:paused tube) true)
       (ref-set (:pause_deadline tube) (+ timeout (current-time)))
+      (alter (:pauses tube) inc)
       (alter tubes assoc (:name tube) tube))))
 
 (defcommand "stats-job" [session id]
@@ -315,6 +317,28 @@
        :buries (:buries job)
        :kicks (:kicks job)
        :time-left time-left})))
+
+(defcommand "stats-tube" [session name]
+  (if-let [tube (get @tubes (keyword name))]
+    (let [paused @(:paused tube)
+          now (current-time)
+          pause-time-left (int (/ (- @(:pause_deadline tube) now) 1000))
+          pause-time-left (if paused pause-time-left 0)
+          jobs-func #(= (:tube %) (:name tube))
+          jobs-of-tube (filter jobs-func (vals @jobs))
+          jobs-reserved (filter #(= (:state %) :reserved) jobs-of-tube)
+          jobs-urgent (filter #(< (:priority %) 1024) @(:ready_set tube))]
+      {:name (:name tube)
+       :current-jobs-urgent (count jobs-urgent)
+       :current-jobs-ready (count @(:ready_set tube))
+       :current-jobs-delayed (count @(:delay_set tube))
+       :current-jobs-buried (count @(:buried_list tube))
+       :current-jobs-reserved (count jobs-reserved)
+       :total-jobs (count jobs-of-tube)
+       :current-waiting (count @(:waiting_list tube))
+       :pause @(:paused tube)
+       :cmd-pause-tube @(:pauses tube)
+       :pause-time-left pause-time-left})))
   
 ;; ------- scheduled tasks ----------
 (defn- update-delay-job-for-tube [now tube]

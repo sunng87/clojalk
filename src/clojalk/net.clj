@@ -87,7 +87,7 @@
 
 (defn on-list-tubes [ch]
   (let [tubes (list-tubes nil)]
-    (enqueue ch ["OK" (string/join "\r\n" (map string/as-str tubes))])))
+    (enqueue ch ["OK" (string/join "" (map line-based-string tubes))])))
 
 (defn on-list-tube-used [ch session]
   (let [tube (list-tube-used session)]
@@ -95,7 +95,7 @@
 
 (defn on-list-tubes-watched [ch session]
   (let [tubes (list-tubes-watched session)]
-    (enqueue ch ["OK" (string/join "\r\n" (map string/as-str tubes))])))
+    (enqueue ch ["OK" (string/join "\r\n" (map line-based-string tubes))])))
 
 (defn on-release [ch session args]
   (try
@@ -177,12 +177,17 @@
 (defn on-stats-job [ch args]
   (try
     (let [id (as-int (first args))
-          format-fn #(str (string/as-str (first %)) ": " (string/as-str (last %)))
           stats (stats-job nil id)]
       (if (nil? stats)
         (enqueue ch ["NOT_FOUND"])
-        (enqueue ch ["OK" (string/join "\r\n" (map format-fn stats))])))
+        (enqueue ch ["OK" (format-stats stats)])))
     (catch NumberFormatException e (enqueue ch ["BAD_FORMAT"]))))
+
+(defn on-stats-tube [ch args]
+  (let [stats (stats-tube nil (first args))]
+    (if (nil? stats)
+      (enqueue ch ["NOT_FOUND"])
+      (enqueue ch ["OK" (format-stats stats)]))))
 
 (defn command-dispatcher [ch client-info msg]
   (let [remote-addr (:remote-addr client-info)
@@ -214,6 +219,7 @@
       "RESERVE-WITH-TIMEOUT"
         (on-reserve-with-timeout ch (get-or-create-session ch remote-addr :worker) args)
       "STATS-JOB" (on-stats-job ch args)
+      "STATS-TUBE" (on-stats-tube ch args)
       (enqueue ch ["UNKNOWN_COMMAND"]))))
 
 (defn default-handler [ch client-info]
