@@ -1,4 +1,5 @@
 (ns clojalk.net
+  (:gen-class)
   (:refer-clojure :exclude [use peek])
   (:require [clojure.contrib.logging :as logging])
   (:require [clojure.contrib.string :as string])
