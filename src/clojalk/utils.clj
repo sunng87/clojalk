@@ -47,14 +47,16 @@
   (str "- " (string/as-str x) "\n"))
 
 (defn format-coll [x]
-  (str "---\n"
-       (string/join ""
-                    (map line-based-string x))))
+  (let [sorted-coll (sort x)]
+    (str "---\n"
+         (string/join ""
+                      (map line-based-string x)))))
 
 (defn format-stats [x]
-  (str "---\n" 
-       (string/join "" 
-                    (map #(str (string/as-str (first %)) ": " (string/as-str (last %)) "\n") x))))
+  (let [stats-keys (sort (keys x))]
+    (str "---\n" 
+         (string/join "" 
+                      (map #(str (string/as-str %) ": " (string/as-str (x %)) "\n") stats-keys)))))
 
 ;;------- scheduler ------------------
 
