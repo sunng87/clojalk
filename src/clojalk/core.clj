@@ -1,5 +1,4 @@
 (ns clojalk.core
-  (:gen-class)
   (:refer-clojure :exclude [use peek])
   (:use [clojalk.utils]))
 

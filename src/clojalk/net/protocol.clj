@@ -1,5 +1,4 @@
 (ns clojalk.net.protocol
-  (:gen-class)
   (:use [clojalk.utils])
   (:use [gloss.core])
   (:use [clojure.string :only [upper-case]]))

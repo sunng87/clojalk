@@ -1,5 +1,4 @@
 (ns clojalk.utils
-  (:gen-class)
   (:require [clojure.contrib.logging :as logging])
   (:require [clojure.contrib.string :as string])
   (:import [java.util UUID])

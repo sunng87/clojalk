@@ -1,5 +1,4 @@
 (ns clojalk.net
-  (:gen-class)
   (:refer-clojure :exclude [use peek])
   (:require [clojure.contrib.logging :as logging])
   (:require [clojure.contrib.string :as string])
@@ -249,8 +248,4 @@
 (defn start-server [port]
   (start-tcp-server default-handler {:port port, :frame beanstalkd-codec}))
 
-(defn -main []
-  (do
-    (start-tasks)
-    (start-server 10000)
-    (println "Clojalk server started")))
+
