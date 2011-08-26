@@ -140,29 +140,26 @@
         (enqueue ch ["TOUCHED"])))
     (catch NumberFormatException e (enqueue ch ["BAD_FORMAT"]))))
 
+(defn- peek-job [ch job]
+  (if (nil? job)
+      (enqueue ch ["NOT_FOUND"])
+      (enqueue ch ["FOUND" (str (:id job)) (:body job)])))
+
 (defn on-peek [ch session args]
   (try
     (let [id (as-int (first args))
           job (exec-cmd "peek" session id)]
-      (if (nil? job)
-        (enqueue ch ["NOT_FOUND"])
-        (enqueue ch ["FOUND" (str (:id job)) (:body job)])))
+      (peek-job ch job))
     (catch NumberFormatException e (enqueue ch ["BAD_FORMAT"]))))
 
-(defn- peek-job [ch session func]
-  (let [job (exec-cmd func session)]
-    (if (nil? job)
-        (enqueue ch ["NOT_FOUND"])
-        (enqueue ch ["FOUND" (str (:id job)) (:body job)]))))
-
 (defn on-peek-ready [ch session]
-  (peek-job ch session "peek-ready"))
+  (peek-job ch (exec-cmd "peek-ready" session)))
 
 (defn on-peek-delayed [ch session]
-  (peek-job ch session "peek-delayed"))
+  (peek-job ch (exec-cmd "peek-delayed" session)))
 
 (defn on-peek-buried [ch session]
-  (peek-job ch session "peek-buried"))
+  (peek-job ch (exec-cmd "peek-buried" session)))
 
 (defn on-reserve-with-timeout [ch session args]
   (try

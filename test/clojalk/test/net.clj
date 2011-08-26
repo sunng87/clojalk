@@ -4,33 +4,32 @@
   (:use [lamina.core])
   (:use [clojure.test]))
 
+(defmacro with-ch [ch data-in addr-in & body]
+  `(let [~ch (channel ~data-in)
+         addr# {:remote-addr ~addr-in}]
+     (receive-all ~ch #(command-dispatcher ~ch addr# %))     
+     ~@body))
+
 (defmacro is-ch [ch test]
   `(receive-all ~ch #(is (~test %))))
 
 (deftest test-put
-  (let [ch (channel ["PUT" "5" "0" "9" "abc"])
-        addr {:remote-addr "127.0.0.1:19875"}]
-    (receive-all ch #(command-dispatcher ch addr %))
-    
+  (with-ch ch ["PUT" "5" "0" "9" "abc"] "127.0.0.1:19875"
     (is-ch ch #(= "INSERTED" (first %)))))
 
 (deftest test-use
-  (let [ch (channel ["USE" "tomcat"])
-        addr {:remote-addr "127.0.0.1:19876"}]
-    (receive-all ch #(command-dispatcher ch addr %))
-    
+  (with-ch ch ["USE" "tomcat"] "127.0.0.1:19876"
     (is-ch ch #(= ["USING" "tomcat"] %))))
 
 (deftest test-watch
-  (let [ch (channel ["WATCH" "tomcat"])
-        addr {:remote-addr "127.0.0.1:19877"}]
-    (receive-all ch #(command-dispatcher ch addr %))
-    
+  (with-ch ch ["WATCH" "tomcat"] "127.0.0.1:19877"
     (is-ch ch #(= ["WATCHING" "2"] %))))
 
 (deftest test-ignore
-  (let [ch (channel ["IGNORE" "default"])
-        addr {:remote-addr "127.0.0.1:19878"}]
-    (receive-all ch #(command-dispatcher ch addr %))
-    
-    (is-ch ch #(= ["NOT_IGNORED"] %))))
+  (with-ch ch ["IGNORE" "default"] "127.0.0.1:19878"
+    (is-ch ch #(= ["NOT_IGNORED"] %))))       
+
+(deftest test-peekdelayed
+  (with-ch ch ["PEEK-DELAYED"] "127.0.0.1:19879"
+    (is-ch ch #(= ["NOT_FOUND"] %)))) 
+
