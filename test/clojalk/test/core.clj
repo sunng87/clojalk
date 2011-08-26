@@ -310,4 +310,9 @@
       (is (false? (:pause stats)))
       (is (zero? (:pause-time-left stats))))))
 
-
+(deftest test-drain
+  (toggle-drain)
+  (let [session-p (use (open-session :producer) "test-drain")]
+    (is (true? @drain))
+    (is (nil? (put session-p 5 0 100 "nice"))))
+  (toggle-drain))

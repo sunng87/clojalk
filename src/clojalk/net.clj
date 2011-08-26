@@ -54,7 +54,8 @@
           body (last args)
           job (exec-cmd "put" session priority delay ttr body)]
       (if job
-        (enqueue ch ["INSERTED" (str (:id job))])))
+        (enqueue ch ["INSERTED" (str (:id job))])
+        (enqueue ch ["DRAINING"])))
     (catch NumberFormatException e (enqueue ch ["BAD_FORMAT"]))))
 
 (defn on-reserve [ch session]

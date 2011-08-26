@@ -55,6 +55,10 @@
   ([type] (open-session (uuid) type))
   ([id type] (ref (struct Session id type :default #{:default} nil nil))))
 
+(defonce drain (atom false))
+(defn toggle-drain []
+  (swap! drain not))
+
 ;;------ clojalk globals -------
 
 (defonce jobs (ref {}))
@@ -128,16 +132,17 @@
 ;;------ clojalk commands ------
 
 (defcommand "put" [session priority delay ttr body]
-  (let [tube ((:use @session) @tubes)
-        job (make-job priority delay ttr (:name @tube) body)]
-    (do
-      (dosync
-        (case (:state job)
-          :delayed (do 
-                     (alter tube assoc :delay_set (conj (:delay_set @tube) job))
-                     (alter jobs assoc (:id job) job))
-          :ready (set-job-as-ready job)))
-      job)))
+  (if-not @drain
+    (let [tube ((:use @session) @tubes)
+          job (make-job priority delay ttr (:name @tube) body)]
+      (do
+        (dosync
+          (case (:state job)
+            :delayed (do 
+                       (alter tube assoc :delay_set (conj (:delay_set @tube) job))
+                       (alter jobs assoc (:id job) job))
+            :ready (set-job-as-ready job)))
+        job))))
 
 (defcommand "peek" [session id]
   (get @jobs id))
