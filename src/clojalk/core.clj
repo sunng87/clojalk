@@ -96,7 +96,8 @@
 
 (defn- reserve-job [session job]
   (let [tube ((:tube job) @tubes)
-        deadline (+ (current-time) (* (:ttr job) 1000))
+        deadline (if (zero? (:ttr job)) 
+                   (Long/MAX_VALUE) (+ (current-time) (* (:ttr job) 1000)))
         updated-top-job (assoc job
                                :state :reserved
                                :reserver session
@@ -352,6 +353,7 @@
         producer-sessions (filter #(= :producer (:type @%)) all-sessions)
         all-tubes (vals @tubes)
         commands-stats @commands]
+;    (dbg commands-stats)
     (merge (zipmap (keys commands-stats) (map deref (vals commands-stats)))
            {:job-timeouts @job-timeouts
             :current-tubes (count all-tubes)
