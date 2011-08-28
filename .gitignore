@@ -4,3 +4,7 @@ pom.xml
 /classes/
 .lein-failures
 .lein-deps-sum
+clojalk.iml
+clojalk.iws
+clojalk.ipr
+
