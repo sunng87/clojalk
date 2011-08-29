@@ -33,6 +33,7 @@
       (is (= 3 (:priority job)))
       (is (= :reserved (:state job)))
       (is (= 1 (count (:ready_set @(:test @tubes)))))
+      (is (contains? (:reserved_jobs @session-t) (:id job)))
       (is (empty? (:waiting_list @(:test @tubes)))))
 
     ;; reserve a job from empty tube

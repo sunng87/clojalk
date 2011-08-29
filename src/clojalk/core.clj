@@ -13,7 +13,8 @@
   :waiting_list :paused :pause_deadline :pauses)
 
 ;; struct definition for Session (connection in beanstalkd)
-(defstruct Session :id :type :use :watch :deadline_at :state :incoming_job)
+(defstruct Session :id :type :use :watch :deadline_at :state 
+  :incoming_job :reserved_jobs) ;;reserved_jobs is a set of ids
 
 (defn- job-comparator [field j1 j2]
   (cond 
@@ -53,7 +54,7 @@
 
 (defn open-session 
   ([type] (open-session (uuid) type))
-  ([id type] (ref (struct Session id type :default #{:default} nil nil))))
+  ([id type] (ref (struct Session id type :default #{:default} nil :idle nil #{}))))
 
 (defonce drain (atom false))
 (defn toggle-drain []
@@ -107,6 +108,8 @@
       (alter jobs assoc (:id job) updated-top-job)
       (dequeue-waiting-session session)
       (alter session assoc :incoming_job updated-top-job)
+      (alter session assoc :reserved_jobs 
+             (conj (:reserved_jobs @session) (:id updated-top-job)))
       updated-top-job)))
 
 (defn- set-job-as-ready [job]
@@ -189,6 +192,8 @@
               (alter tube assoc :buried_list 
                      (vec (remove-item (:buried_list @tube) job))))
             (alter session assoc :incoming_job nil)
+            (alter session assoc :reserved_jobs 
+                   (disj (:reserved_jobs @session) (:id job)))
             (alter session assoc :state :idle))
           (assoc job :state :invalid))))))
 
@@ -207,10 +212,12 @@
           (dosync
             (if (> delay 0)
               (do
-                (alter tube assoc 
-                       :delay_set (conj (:delay_set @tube) (assoc updated-job :state :delayed))))
+                (alter tube assoc :delay_set 
+                       (conj (:delay_set @tube) (assoc updated-job :state :delayed))))
               (set-job-as-ready (assoc updated-job :state :ready)))
             (alter session assoc :incoming_job nil)
+            (alter session assoc :reserved_jobs 
+                   (disj (:reserved_jobs @session) (:id updated-job)))
             (alter session assoc :state :idle))
           updated-job)))))
 
@@ -227,6 +234,8 @@
             (alter tube assoc :buried_list (conj (:buried_list @tube) updated-job))
             (alter jobs assoc (:id updated-job) updated-job)
             (alter session assoc :incoming_job nil)
+            (alter session assoc :reserved_jobs 
+                   (disj (:reserved_jobs @session) (:id updated-job)))
             (alter session assoc :state :idle))
           updated-job)))))
 
