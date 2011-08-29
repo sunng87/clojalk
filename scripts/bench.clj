@@ -9,7 +9,7 @@
   (alength (.getBytes s "utf8")))
 
 (defn make-conn []
-  (new-beanstalk 11300))
+  (new-beanstalk 10000))
 
 (def task-body
   "<request><name>Activation</name><email>sunng@sunng.info</email></request>")
