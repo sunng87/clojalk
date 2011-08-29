@@ -13,7 +13,7 @@
     #(if-not % -1 (- % count-offset))))
 
 ;; --------- gloss codec definitions -----------
-(defcodec token (string :ascii :delimiters [" " "\r\n" "\n"]))
+(defcodec token (string :ascii :delimiters [" " "\r\n" "\n" "\0"]))
 (defcodec token-space (string :ascii :delimiters [" "]))
 (defcodec token-newline (string :ascii :delimiters ["\r\n"]))
 (defcodec body 
