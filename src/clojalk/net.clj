@@ -21,17 +21,23 @@
          
            (enqueue ch ["UNKNOWN_COMMAND"]))))))
 
-(defn get-or-create-session [ch remote-addr type]
-  (dosync
-    (if-not (contains? @sessions remote-addr)
-      (let [new-session (open-session remote-addr type)]
-        (alter new-session assoc :channel ch)
-        (alter sessions assoc remote-addr new-session))))
-  (@sessions remote-addr))
-
 (defn close-session [remote-addr]
   (dosync
     (alter sessions dissoc remote-addr)))
+
+(defn- create-session [ch remote-addr type]
+  (let [new-session (open-session remote-addr type)]
+    (alter new-session assoc :channel ch)
+    (alter sessions assoc remote-addr new-session)
+    
+    ;; also register on-closed callback on channel
+    (on-closed ch #(close-session remote-addr))))
+
+(defn get-or-create-session [ch remote-addr type]
+  (dosync
+    (if-not (contains? @sessions remote-addr)
+      (create-session ch remote-addr type)))
+  (@sessions remote-addr))
 
 ;; reserve watcher
 (defn reserve-watcher [key identity old-value new-value]
@@ -80,7 +86,7 @@
     (enqueue ch ["NOT_IGNORED"])))
 
 (defn on-quit [ch remote-addr]
-  (close-session remote-addr)
+;  (close-session remote-addr)
   (close ch))
 
 (defn on-list-tubes [ch]
