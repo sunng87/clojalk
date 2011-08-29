@@ -22,8 +22,10 @@
            (enqueue ch ["UNKNOWN_COMMAND"]))))))
 
 (defn close-session [remote-addr]
-  (dosync
-    (alter sessions dissoc remote-addr)))
+  (let [session (@sessions remote-addr)]
+    (dosync
+      (doall (map #(set-job-as-ready (@jobs %)) (:reserved_jobs @session)))
+      (alter sessions dissoc remote-addr))))
 
 (defn- create-session [ch remote-addr type]
   (let [new-session (open-session remote-addr type)]

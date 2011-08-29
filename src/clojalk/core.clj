@@ -112,10 +112,10 @@
              (conj (:reserved_jobs @session) (:id updated-top-job)))
       updated-top-job)))
 
-(defn- set-job-as-ready [job]
+(defn set-job-as-ready [job]
   (let [tube ((:tube job) @tubes)]
     (do
-      (alter jobs assoc (:id job) job)
+      (alter jobs assoc (:id job) (assoc job :state :ready))
       (alter tube assoc :ready_set (conj (:ready_set @tube) job))
       (if-let [s (first (:waiting_list @tube))]
         (reserve-job s job)))))
