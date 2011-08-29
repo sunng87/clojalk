@@ -336,6 +336,7 @@
        :current-jobs-reserved (count jobs-reserved)
        :total-jobs (count jobs-of-tube)
        :current-waiting (count (:waiting_list @tube))
+       :current-using (count (filter #(= (keyword name) (:use @%)) (vals @sessions)))
        :pause (:paused @tube)
        :cmd-pause-tube (:pauses @tube)
        :pause-time-left pause-time-left})))
