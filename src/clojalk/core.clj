@@ -96,8 +96,7 @@
 
 (defn- reserve-job [session job]
   (let [tube ((:tube job) @tubes)
-        deadline (if (zero? (:ttr job)) 
-                   (Long/MAX_VALUE) (+ (current-time) (* (:ttr job) 1000)))
+        deadline (+ (current-time) (* (:ttr job) 1000))
         updated-top-job (assoc job
                                :state :reserved
                                :reserver session
