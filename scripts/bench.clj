@@ -18,7 +18,7 @@
   (put conn 
        (rand-int 5000)  ; priority
        (rand-int 5) ; delay
-       0 
+       1000 ; ttr 
        (byte-length task-body) 
        task-body))
 
