@@ -21,6 +21,12 @@
 
 (defn uppercase [#^String s] (.toUpperCase s))
 
+(defn assoc-all [x s]
+  "assoc a sequence of k-v pairs into x"
+  (if-not (empty? s)
+    (apply assoc x s)
+    x))
+
 (defn conj-all [x s]
   "conject a sequence s into x"
   (if-not (empty? s)

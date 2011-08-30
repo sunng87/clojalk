@@ -21,24 +21,14 @@
          
            (enqueue ch ["UNKNOWN_COMMAND"]))))))
 
-(defn close-session [remote-addr]
-  (let [session (@sessions remote-addr)]
-    (dosync
-      (doall (map #(set-job-as-ready (@jobs %)) (:reserved_jobs @session)))
-      (alter sessions dissoc remote-addr))))
-
 (defn- create-session [ch remote-addr type]
-  (let [new-session (open-session remote-addr type)]
-    (alter new-session assoc :channel ch)
-    (alter sessions assoc remote-addr new-session)
-    
-    ;; also register on-closed callback on channel
-    (on-closed ch #(close-session remote-addr))))
+  (open-session remote-addr type :channel ch)
+  ;; also register on-closed callback on channel
+  (on-closed ch #(close-session remote-addr)))
 
 (defn get-or-create-session [ch remote-addr type]
-  (dosync
-    (if-not (contains? @sessions remote-addr)
-      (create-session ch remote-addr type)))
+  (if-not (contains? @sessions remote-addr)
+    (create-session ch remote-addr type))
   (@sessions remote-addr))
 
 ;; reserve watcher

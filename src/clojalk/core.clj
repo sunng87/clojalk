@@ -52,10 +52,6 @@
             deadline_at state tube body nil
             0 0 0 0 0)))
 
-(defn open-session 
-  ([type] (open-session (uuid) type))
-  ([id type] (ref (struct Session id type :default #{:default} nil :idle nil #{}))))
-
 (defonce drain (atom false))
 (defn toggle-drain []
   (swap! drain not))
@@ -112,13 +108,29 @@
              (conj (:reserved_jobs @session) (:id updated-top-job)))
       updated-top-job)))
 
-(defn set-job-as-ready [job]
+(defn- set-job-as-ready [job]
   (let [tube ((:tube job) @tubes)]
     (do
       (alter jobs assoc (:id job) (assoc job :state :ready))
       (alter tube assoc :ready_set (conj (:ready_set @tube) job))
       (if-let [s (first (:waiting_list @tube))]
         (reserve-job s job)))))
+
+(defn open-session 
+  ([type] (open-session (uuid) type))
+  ([id type & sesssion-data] 
+    (let [session (ref (struct Session id type :default #{:default} nil :idle nil #{}))]
+      (dosync
+        (if (not-empty sesssion-data)
+          (alter session assoc-all sesssion-data))
+        (alter sessions assoc id session))
+      session)))
+
+(defn close-session [id]
+  (let [session (@sessions id)]
+    (dosync
+      (doall (map #(set-job-as-ready (@jobs %)) (:reserved_jobs @session)))
+      (alter sessions dissoc id))))
 
 ;;-------- macros ----------
 
