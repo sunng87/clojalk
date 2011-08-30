@@ -215,7 +215,8 @@
     (sleep 1.5)
     (update-expired-job-task)
     
-    (is (= 3 (count (:ready_set @(:expire-task-test @tubes)))))))
+    (is (= 3 (count (:ready_set @(:expire-task-test @tubes)))))
+    (is (= 1 (count (:reserved_jobs @session-w))))))
 
 (deftest test-update-expired-tube
   (let [session-p (use (open-session :producer) "expire-tube-test")
