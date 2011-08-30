@@ -46,8 +46,9 @@
         session-w (watch (open-session :worker) "delete-test")
         ;; make some jobs in the delete-test tube
         j1 (put session-p 3 0 1000 "neat")
-        j2 (put session-p 4 0 1000 "nice")
-        j3 (put session-p 4 0 1000 "cute")]
+        j2 (put session-p 10 0 1000 "nice")
+        j3 (put session-p 4 0 1000 "cute")
+        j4 (put session-p 100 100 1000 "geek")]
     
     ;; reserve and delete a job
     (let [job (reserve session-w)
@@ -59,12 +60,15 @@
     (let [job (reserve session-w)
           job (bury session-w (:id job) 10)
           detached-job (delete session-w (:id job))]
-      (is (empty? (:buried_list @(:delete-test @tubes)))))
+      (is (empty? (:buried_list @(:delete-test @tubes))))
+      (is (nil? (@jobs (:id job)))))
     
-    ;; delete a ready job
-    (delete session-w (:id j2))
-    ;; make sure tube is not empty, ready job could not be deleted
-    (is (not-empty (:ready_set @(:delete-test @tubes))))))
+    ;; delete a ready job with non-worker session
+    (delete session-p (:id j2))
+    (is (empty? (:ready_set @(:delete-test @tubes))))
+    
+    ;; delayed job could not be deleted
+    (is (nil? (delete session-p (:id j4))))))
     
 (deftest test-release
   (let [session-p (use (open-session :producer) "release-test")

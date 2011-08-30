@@ -194,8 +194,13 @@
 
 (defcommand "delete" [session id]
   (if-let [job (get @jobs id)]
-    (if (and (contains? #{:reserved :buried} (:state job)) 
-             (= (:id @(:reserver job)) (:id @session))) 
+    ;; 1. For reserved job, only reserved session could delete it
+    ;; so we'd like to reject jobs that is reserved and its reserver 
+    ;; is not current session
+    ;; 2. Delayed job could not be deleted until it's ready
+    (if-not (or (= :delayed (:state job)) 
+                (and (= :reserved (:state job)) 
+                     (not (= (:id @session) (:id @(:reserver job))))))
       (let [tube ((:tube job) @tubes)]
         (do
           (dosync
@@ -203,6 +208,9 @@
             (if (= (:state job) :buried)
               (alter tube assoc :buried_list 
                      (vec (remove-item (:buried_list @tube) job))))
+            (if (= (:state job) :ready)
+              (alter tube assoc :ready_set
+                     (disj (:ready_set @tube) job)))
             (alter session assoc :incoming_job nil)
             (alter session assoc :reserved_jobs 
                    (disj (:reserved_jobs @session) (:id job)))
