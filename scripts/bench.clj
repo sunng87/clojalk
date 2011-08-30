@@ -29,6 +29,8 @@
   (delete conn id))
 
 (def *tube-name* "bench-tube")
+(def *puts* (atom 0))
+(def *reserves* (atom 0))
 
 (defn producer []
   (println "starting producer")
@@ -36,6 +38,7 @@
     (use conn *tube-name*)
     (loop []
       (do-put conn)
+      (swap! *puts* inc)
       (sleep (rand-int 30))
       (recur))))
 
@@ -46,6 +49,7 @@
     (loop []
       (let [id (do-reserve conn)]
         (sleep (rand-int 100))
+        (swap! *reserves* inc)
         (do-delete conn id)
         (recur)))))
 
@@ -55,6 +59,7 @@
     (use conn *tube-name*)
     (loop []
       (println (:stats (stats-tube conn *tube-name*)))
+      (println (str "puts: " @*puts* " reserves: " @*reserves*))
       (sleep 5000)
       (recur))))
 
