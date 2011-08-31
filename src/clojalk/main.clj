@@ -1,7 +1,7 @@
 (ns clojalk.main
   (:gen-class)
   (:refer-clojure :exclude [use peek])  
-  (:use [clojalk net core utils])
+  (:use [clojalk net core utils jmx])
   (:use [clojure.contrib.properties]))
 
 (defn property [properties key]
@@ -12,5 +12,6 @@
         props (read-properties prop-file-name)]
     (start-tasks)
     (start-server (as-int (property props "server.port")))
+    (start-jmx-server)
     (println (str "Clojalk server started, listening on " 
                   (property props "server.port")))))
