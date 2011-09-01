@@ -63,6 +63,8 @@
          (string/join "" 
                       (map #(str (string/as-str %) ": " (string/as-str (x %)) "\n") stats-keys)))))
 
+(def into-string-array (partial into-array String))
+
 ;;------- scheduler ------------------
 
 (defn- wrap-task [task]

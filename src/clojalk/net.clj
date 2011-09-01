@@ -197,7 +197,7 @@
     (catch NumberFormatException e (enqueue ch ["BAD_FORMAT"]))))
 
 (defn command-dispatcher [ch client-info msg]
-  (let [remote-addr (:remote-addr client-info)
+  (let [remote-addr (.toString (:remote-addr client-info))
         cmd (first msg)
         args (rest msg)]
     (case cmd
