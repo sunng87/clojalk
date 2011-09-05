@@ -420,10 +420,9 @@
               updated-job (assoc job :state :ready 
                                  :reserver nil
                                  :timeouts (inc (:timeouts job)))]
-          (alter jobs assoc (:id job) updated-job)
-          (alter tube assoc :ready_set (conj (:ready_set @tube) updated-job))
           (alter session assoc :reserved_jobs (disj (:reserved_jobs @session) (:id updated-job)))
-          (alter job-timeouts inc))))))
+          (alter job-timeouts inc)
+          (set-job-as-ready updated-job))))))
   
 (defn update-paused-tube-task []
   (dosync
