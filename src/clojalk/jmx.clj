@@ -12,12 +12,31 @@
            (attr-value)
            attr-value)))))
 
-(def jmx-bean
+(defn- workers []
+  (map #(name (:id @%)) (filter #(= :worker (:type @%)) (vals @sessions))))
+
+(defn- producers []
+  (map #(name (:id @%)) (filter #(= :producer (:type @%)) (vals @sessions))))
+
+(def jmx-session-bean
   (new-mbean 
     (ref 
-      {:version "1.0.0-alpha"
-       :tubes (fn [] (into-string-array (map #(name (:name @%)) (vals @tubes))))
-       :sessions (fn [] (into-string-array (map #(:id @%) (vals @sessions))))})))
+      {:workers (fn [] (into-string-array (workers)))
+       :producers (fn [] (into-string-array (producers)))})))
+
+(def jmx-job-bean
+  (new-mbean
+    (ref
+      {:total-jobs (fn [] (count @jobs))
+       })))
+
+(def jmx-tube-bean
+  (new-mbean
+    (ref
+      {:tubes (fn [] (into-string-array (map #(name (:name @%)) (vals @tubes))))
+       })))
   
 (defn start-jmx-server []
-  (jmx/register-mbean jmx-bean "clojalk.management:type=Monitor"))
+  (jmx/register-mbean jmx-session-bean "clojalk.management:type=Sessions")
+  (jmx/register-mbean jmx-job-bean "clojalk.management:type=Jobs")
+  (jmx/register-mbean jmx-tube-bean "clojalk.management:type=Tubes"))
