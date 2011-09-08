@@ -299,8 +299,12 @@
        (swap! cnt# inc))
      (~(symbol cmd) ~@args)))
 
-;;------ clojalk commands ------
+;; ## Commands Definitions
 
+;; `put` is a producer task. It will create a new job according to information passed in.
+;; When server is in drain mode, it does not store the job and return nil.
+;; If dealy is not zero, the job will be created as a delayed job. Delayed
+;; job could not be reserved until it's timeout and ready.
 (defcommand "put" [session priority delay ttr body]
   (if-not @drain
     (let [tube ((:use @session) @tubes)
@@ -314,31 +318,48 @@
             :ready (set-job-as-ready job)))
         job))))
 
+;; `peek` will try to find job with given id. Any session could use this
+;; command.
 (defcommand "peek" [session id]
   (get @jobs id))
 
-;; peek-* are producer tasks, peek job from current USED tubes (not watches)
+;; `peek-ready` is a producer task. It will peek the most prioritized job from current
+;; using tube.
 (defcommand "peek-ready" [session]
   (let [tube ((:use @session) @tubes)]
     (first (:ready_set @tube))))
 
+;; `peek-delayed` is also a producer task. The job which is nearest to deadline will
+;; be peeked.
 (defcommand "peek-delayed" [session]
   (let [tube ((:use @session) @tubes)]
     (first (:delay_set @tube))))
 
+;; `peek-buried` is another producer task. It will peek the first item in the buried list.
 (defcommand "peek-buried" [session]
   (let [tube ((:use @session) @tubes)]
     (first (:buried_list @tube))))
 
+;; `reserve-with-timeout` is a worker task. It tries to reserve a job from its watching
+;; tubes. If there is no job ready for reservation, it will wait at most `timeout`
+;; seconds.
+;; BE CAUTION: this is only for server mode. If you use clojalk as a embedded library,
+;; `reserve-with-timeout` will return nil at once if there is no job ready.
 (defcommand "reserve-with-timeout" [session timeout]
   (dosync
     (enqueue-waiting-session session timeout)
     (if-let [top-job (top-ready-job session)]
       (reserve-job session top-job))))
 
+;; `reserve` is a worker task. It will wait for available jobs without timeout.
+;; BE CAUTION: this is only for server mode. If you use clojalk as a embedded library,
+;; `reserve` will return nil at once if there is no job ready.
+;; TODO Maybe we can use some agent to block the thread and to keep server mode and
+;; embedded mode in consistent.
 (defcommand "reserve" [session]
   (reserve-with-timeout session nil))
 
+;; `use` is a producer task. It will create a tube if not exist.
 (defcommand "use" [session tube-name]
   (let [tube-name-kw (keyword tube-name)]
     (dosync
@@ -347,12 +368,25 @@
         (alter session assoc :use tube-name-kw)
       session)))
 
+;; `delete` could be used either with worker or producer. The rule is:
+;;
+;; 1. For reserved job, only reserved session could delete it
+;; so we'd like to reject job that is reserved and its reserver
+;; is not current session
+;; 2. Delayed job could not be deleted until it's ready
+;;
+;; Steps to delete a job is a little bit complex:
+;; 1. Test if job could satisfy rules described above.
+;; 2. Remove job from *jobs*
+;; 3. If the job is buried, update `buried_list` of its tube
+;; 4. If the job is in ready_set, remove it from ready_set
+;; 5. Empty the incoming_job field of session, remove the job from
+;; its reserved_jobs list
+;; 6. Set the session as idle if the no other jobs reserved by it
+;; 7. Set the job as invalid and return
+;;
 (defcommand "delete" [session id]
   (if-let [job (get @jobs id)]
-    ;; 1. For reserved job, only reserved session could delete it
-    ;; so we'd like to reject jobs that is reserved and its reserver 
-    ;; is not current session
-    ;; 2. Delayed job could not be deleted until it's ready
     (if-not (or (= :delayed (:state job)) 
                 (and (= :reserved (:state job)) 
                      (not (= (:id @session) (:id @(:reserver job))))))
@@ -369,9 +403,16 @@
             (alter session assoc :incoming_job nil)
             (alter session assoc :reserved_jobs 
                    (disj (:reserved_jobs @session) (:id job)))
-            (alter session assoc :state :idle))
+            (if (empty? (:reserved_jobs @session))
+              (alter session assoc :state :idle)))
           (assoc job :state :invalid))))))
 
+;; `release` is a worker command to free reserved job and changes its
+;; priority and delay. `release` will also check the state and reserver of
+;; given job because only reserved job could be released by its reserver.
+;;
+;; After job released (set-job-as-ready), it will also update session
+;; like what we do in `delete`.
 (defcommand "release" [session id priority delay]
   (if-let [job (get @jobs id)]
     (if (and (= (:state job) :reserved) 
@@ -393,9 +434,14 @@
             (alter session assoc :incoming_job nil)
             (alter session assoc :reserved_jobs 
                    (disj (:reserved_jobs @session) (:id updated-job)))
-            (alter session assoc :state :idle))
+            (if (empty? (:reserved_jobs @session))
+              (alter session assoc :state :idle)))
           updated-job)))))
 
+;; `bury` is a worker task. And only reserved job could be buried by
+;; its reserver.
+;;
+;; buried job will be added into the buried_list of its tube.
 (defcommand "bury" [session id priority]
   (if-let [job (get @jobs id)]
     (if (and (= (:state job) :reserved) 
@@ -411,10 +457,15 @@
             (alter session assoc :incoming_job nil)
             (alter session assoc :reserved_jobs 
                    (disj (:reserved_jobs @session) (:id updated-job)))
-            (alter session assoc :state :idle))
+            (if (empty? (:reserved_jobs @session))
+              (alter session assoc :state :idle)))
           updated-job)))))
 
-;; for USED tube only
+;; `kick` is a producer command. It will kick at most `bound` jobs from buried
+;; or delayed to ready. Buried jobs will be kicked first, if there is no jobs
+;; in buried_list, delayed jobs will be kicked. However, it won't kick both set
+;; of jobs at a kick. That means, if you have buried jobs less that `bound`, only
+;; the buried jobs could be kicked. Delayed ones could be kicked in next `kick`.
 (defcommand "kick" [session bound]
   (let [tube ((:use @session) @tubes)]
     (dosync
@@ -438,6 +489,9 @@
             (set-job-as-ready (assoc job :kicks (inc (:kicks job)))))
           updated-kicked)))))
 
+;; `touch` is another worker command to renew the deadline. It will perform
+;; the same check as `release` does.
+;;
 (defcommand "touch" [session id]
   (if-let [job (get @jobs id)]
     (if (and (= (:state job) :reserved) 
@@ -450,6 +504,8 @@
               (alter jobs assoc (:id updated-job) updated-job)
               updated-job)))))))
 
+;; `watch` is a worker command to add tube into watching list.
+;; Will create tube if it doesn't exist.
 (defcommand "watch" [session tube-name]
   (let [tube-name-kw (keyword tube-name)]
     (dosync
@@ -458,21 +514,30 @@
         (alter session assoc :watch (conj (:watch @session) tube-name-kw))
       session)))
 
+;; `ignore` is a worker command to remove tube from watching list.
+;; Note that a worker could not remove the last tube it watches.
 (defcommand "ignore" [session tube-name]
   (let [tube-name-kw (keyword tube-name)]
     (dosync
-      (alter session assoc :watch (disj (:watch @session) tube-name-kw)))
+      (if (> (count (:watch @session)) 1)
+        (alter session assoc :watch (disj (:watch @session) tube-name-kw))))
     session))
 
+;; stats command. list tubes names.
 (defcommand "list-tubes" [session]
   (keys @tubes))
 
+;; stats command. display tube used by current session.
 (defcommand "list-tube-used" [session]
   (:use @session))
 
+;; stats command. list tubes watched by current session.
 (defcommand "list-tubes-watched" [session]
   (:watch @session))
 
+;; Pause select tube in next `timeout` seconds. Jobs in paused tubes could
+;; not be reserved until pause timeout.
+;; Also update a statistical field.
 (defcommand "pause-tube" [session id timeout]
   (if-let [tube ((keyword id) @tubes)]
     (dosync
@@ -480,6 +545,7 @@
       (alter tube assoc :pause_deadline (+ (* timeout 1000) (current-time)))
       (alter tube assoc :pauses (inc (:pauses @tube))))))
 
+;; stats command. Display some information of a job.
 (defcommand "stats-job" [session id]
   (if-let [job (get @jobs id)]
     (let [state (:state job)
@@ -501,6 +567,7 @@
        :kicks (:kicks job)
        :time-left time-left})))
 
+;; stats command. Display some information of a tube.
 (defcommand "stats-tube" [session name]
   (if-let [tube (get @tubes (keyword name))]
     (let [paused (:paused @tube)
@@ -524,6 +591,12 @@
        :cmd-pause-tube (:pauses @tube)
        :pause-time-left pause-time-left})))
 
+;; stats command. Display server statistical data:
+;;
+;; * commands executions count
+;; * jobs stats
+;; * connections status, workers count, producer count.
+;; * and more.
 (defcommand "stats" [session]
   (let [all-jobs (vals @jobs)
         reserved-jobs (filter #(= :reserved (:state %)) all-jobs)
@@ -552,7 +625,10 @@
             :current-jobs-delayed (count delayed-jobs)
             :current-jobs-buried (count buried-jobs)})))
   
-;; ------- scheduled tasks ----------
+;; ## Schedule tasks for time based work
+;;
+
+;; Set delay jobs as ready when they are timeout.
 (defn- update-delay-job-for-tube [now tube]
   (dosync
     (let [ready-jobs (filter #(< (:deadline_at %) now) (:delay_set @tube))
@@ -561,9 +637,11 @@
         (alter tube assoc :delay_set (disj (:delay_set @tube) job))
         (set-job-as-ready job)))))
 
+;; Loop all tubes to perform last function.
 (defn update-delay-job-task []
   (doseq [tube (vals @tubes)] (update-delay-job-for-tube (current-time) tube)))
 
+;; Release jobs that are exceed ttr
 (defn update-expired-job-task []
   (dosync
     (let [reserved-jobs (filter #(= :reserved (:state %)) (vals @jobs))
@@ -578,7 +656,8 @@
           (alter session assoc :reserved_jobs (disj (:reserved_jobs @session) (:id updated-job)))
           (alter job-timeouts inc)
           (set-job-as-ready updated-job))))))
-  
+
+;; Enable paused tubes when they are timeout
 (defn update-paused-tube-task []
   (dosync
     (let [all-tubes (vals @tubes)
@@ -597,6 +676,10 @@
                 (reserve-job s j)
                 (recur (first (:waiting_list @t)) (first (:ready_set @t)))))))))))
 
+;; Update waiting workers when they are expired
+;;
+;; we don't update deadline_at on this task,
+;; it will be updated next time when it's reserved
 (defn update-expired-waiting-session-task []
   (dosync
     (doseq
@@ -606,11 +689,13 @@
             active-func (fn [s] (or (nil? (:deadline_at @s)) (< now (:deadline_at @s))))]
         (do
           (alter tube assoc :waiting_list (vec (filter active-func waiting_list)))
-          (doseq [session (filter #(false? (active-func %)) waiting_list)] 
-            ;; we don't update deadline_at on this task, 
-            ;; it will be updated next time when it's reserved
+          (doseq [session (filter #(false? (active-func %)) waiting_list)]
             (alter session assoc :state :idle))))))) 
 
+;; Start all tasks mentioned above with 5 threads.
+;; Tasks are executed in fixed delay.
+;;
+;; A scheduler will be returned.
 (defn start-tasks []
   (schedule-task 5 
                  [update-delay-job-task 0 1] 
@@ -618,5 +703,7 @@
                  [update-paused-tube-task 0 1]
                  [update-expired-waiting-session-task 0 1]))
 
+;; Stop the scheduler
+;;
 (defn stop-tasks [scheduler]
   (.shutdownNow scheduler))
