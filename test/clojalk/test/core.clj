@@ -241,20 +241,21 @@
         session-w2 (watch (open-session :worker) "waiting-test")]
     ;; waiting for incoming job
     (run-in-background #(reserve session-w))
-    (run-in-background #(reserve session-w2))
-
     ;; put two job for each worker
-    (put session-p 10 0 20 "nice")
     (put session-p 10 0 20 "nice")
 
     (is (= "nice" (:body (first (:reserved_jobs @session-w)))))
     (is (= :working (:state @session-w)))
 
     (let [the-job-id (:id (first (:reserved_jobs @session-w)))]
+      ;; another worker is waiting for incoming job
+      (run-in-background #(reserve session-w2))
+
       ;; release it
       (release session-w the-job-id 10 0)
 
-      ;; it should be reserved by session-w2 immediately
+      ;; it should be reserved by session-w2 immediately according
+      ;; to the release sequence
       (is (= :working (:state @session-w2)))
       (is (= :reserved (:state (get @jobs the-job-id))))
       (is (= (:id @session-w2) (:id @(:reserver (get @jobs the-job-id)))))
