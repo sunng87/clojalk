@@ -80,11 +80,9 @@
 ;;   1. **:idle** the worker session is idle
 ;;   1. **:waiting** the worker session has sent reserve request, is now waiting for jobs
 ;;   1. **:working** the worker session has reserved a job
-;; * **incoming_job** the job worker session just reserved
 ;; * **reserved_jobs** id of jobs the worker session reserved
 ;;
-(defstruct Session :id :type :use :watch :deadline_at :state 
-  :incoming_job :reserved_jobs)
+(defstruct Session :id :type :use :watch :state :reserved_jobs)
 
 ;; A generic comparator for job:
 ;;  Compare selected field or id if equal.
@@ -159,7 +157,10 @@
 
 ;; ## Functions to handle clojalk logic
 
-;; Find top priority job from session's watch list. Steps:
+;; Find top priority job from session's watch list.
+;; We will filter paused tubes in this function, a paused tube will be treated
+;; as an empty tube here.
+;; Steps:
 ;;
 ;; 1. Get watched tube name list
 ;; 1. Select tubes from @tubes
@@ -178,29 +179,38 @@
 ;; Append a session into waiting_list of all tubes it watches.
 ;; Also update *state* and *deadline_at* of the session.
 ;;
+;; A promise is bound to session to block reserve task
 ;; (This function does not open transaction so it should run within a dosync block)
 (defn- enqueue-waiting-session [session timeout]
   (let [watch-tubes (filter #(contains? (:watch @session) (:name @%)) (vals @tubes))
-        deadline_at (if (nil? timeout) nil (+ (current-time) (* timeout 1000)))]
+        deadline_at (if (nil? timeout) nil (+ (current-time) (* timeout 1000)))
+        result (promise)]
     (doseq [tube watch-tubes]
       (alter tube assoc :waiting_list (conj (:waiting_list @tube) session)))
     (alter session assoc
                :state :waiting
-               :deadline_at deadline_at)))
+               :deadline_at deadline_at
+               :waiting_promise result)))
 
 ;; Remove session from waiting_list of all tubes it watches.
 ;; This function is invoked when a session successfully reserved a job.
 ;; This also updates session *state* to `working` and leave *deadline_at* as it is.
 ;;
 ;; (This function does not open transaction so it should run within a dosync block)
-(defn- dequeue-waiting-session [session]
+(defn- dequeue-waiting-session [session state]
   (let [watch-tubes (filter #(contains? (:watch @session) (:name @%)) (vals @tubes))]
     (doseq [tube watch-tubes]
       (alter tube assoc :waiting_list (remove-item (:waiting_list @tube) session)))
-    (alter session assoc :state :working)))
+    (alter session assoc :state state
+                         :waiting_promise nil)))
 
-;; Reserve the job with the session. Steps:
+;; Reserve the job with the session.
+;; For timeout session, a nil will be passed into the form.
+;; Steps:
 ;;
+;; 1. Run `dequeue-waiting-session` on this session, remove the session from
+;; waiting queue. if the job is nil, we will set the state to :idle
+;; 1. If the job passed in is a nil, do nothing.
 ;; 1. Find tube of this job
 ;; 1. Compute deadline of this reservation
 ;; 1. Create an updated version of job
@@ -210,29 +220,26 @@
 ;;   - increase reserve count
 ;; 1. Remove ths job from its tube's ready_set
 ;; 1. Update job in @jobs
-;; 1. Run `dequeue-waiting-session` on this session
-;; 1. Assign the job to `incoming_job` of the session
 ;; 1. Append the job id to `reserved_jobs` of the session
 ;;
 ;; Finally, this function returns the reserved job.
 ;;
-;; (This function does not open transaction so it should run within a dosync block)
 (defn- reserve-job [session job]
-  (let [tube ((:tube job) @tubes)
-        deadline (+ (current-time) (* (:ttr job) 1000))
-        updated-top-job (assoc job
-                               :state :reserved
-                               :reserver session
-                               :deadline_at deadline
-                               :reserves (inc (:reserves job)))]
-    (do
-      (alter tube assoc :ready_set (disj (:ready_set @tube) job))
-      (alter jobs assoc (:id job) updated-top-job)
-      (dequeue-waiting-session session)
-      (alter session assoc :incoming_job updated-top-job)
-      (alter session assoc :reserved_jobs 
-             (conj (:reserved_jobs @session) (:id updated-top-job)))
-      updated-top-job)))
+  (dequeue-waiting-session session (if (nil? job) :idle :working))
+  (if-not (nil? job)
+    (let [tube ((:tube job) @tubes)
+          deadline (+ (current-time) (* (:ttr job) 1000))
+          updated-top-job (assoc job
+                                 :state :reserved
+                                 :reserver session
+                                 :deadline_at deadline
+                                 :reserves (inc (:reserves job)))]
+      (dosync
+        (alter tube assoc :ready_set (disj (:ready_set @tube) job))
+        (alter jobs assoc (:id job) updated-top-job)
+        (alter session assoc :reserved_jobs
+               (conj (:reserved_jobs @session) (:id updated-top-job)))
+        updated-top-job))))
 
 ;; Mark the job as ready. This is referenced when
 ;;
@@ -253,7 +260,7 @@
       (alter jobs assoc (:id job) (assoc job :state :ready))
       (alter tube assoc :ready_set (conj (:ready_set @tube) job))
       (if-let [s (first (:waiting_list @tube))]
-        (reserve-job s job)))))
+        (deliver (:waiting_promise @s) job)))))
 
 ;; Create a session and add it to the `sessions`
 ;; There are two signatures for this function. If you do not provide id, a uuid will be
@@ -341,21 +348,21 @@
     (first (:buried_list @tube))))
 
 ;; `reserve-with-timeout` is a worker task. It tries to reserve a job from its watching
-;; tubes. If there is no job ready for reservation, it will wait at most `timeout`
+;; tubes. If there is no job ready for reservation, it will be blocked at most `timeout`
 ;; seconds.
-;; BE CAUTION: this is only for server mode. If you use clojalk as a embedded library,
-;; `reserve-with-timeout` will return nil at once if there is no job ready.
+;;
+;; A promise is set into the session in `enqueue-waiting-session`. When a job is ready
+;; for waiting session, it will be delivered to the promise.
 (defcommand "reserve-with-timeout" [session timeout]
   (dosync
-    (enqueue-waiting-session session timeout)
-    (if-let [top-job (top-ready-job session)]
-      (reserve-job session top-job))))
+    (enqueue-waiting-session session timeout))
+  (if-let [top-job (top-ready-job session)]
+    (deliver (:waiting_promise @session) top-job))
+  (if (nil? timeout)
+    (reserve-job session (deref (:waiting_promise @session)))
+    (reserve-job session (deref (:waiting_promise @session) (* timeout 1000) nil))))
 
 ;; `reserve` is a worker task. It will wait for available jobs without timeout.
-;; BE CAUTION: this is only for server mode. If you use clojalk as a embedded library,
-;; `reserve` will return nil at once if there is no job ready.
-;; TODO Maybe we can use some agent to block the thread and to keep server mode and
-;; embedded mode in consistent.
 (defcommand "reserve" [session]
   (reserve-with-timeout session nil))
 
@@ -380,7 +387,6 @@
 ;; 2. Remove job from *jobs*
 ;; 3. If the job is buried, update `buried_list` of its tube
 ;; 4. If the job is in ready_set, remove it from ready_set
-;; 5. Empty the incoming_job field of session, remove the job from
 ;; its reserved_jobs list
 ;; 6. Set the session as idle if the no other jobs reserved by it
 ;; 7. Set the job as invalid and return
@@ -400,7 +406,6 @@
             (if (= (:state job) :ready)
               (alter tube assoc :ready_set
                      (disj (:ready_set @tube) job)))
-            (alter session assoc :incoming_job nil)
             (alter session assoc :reserved_jobs 
                    (disj (:reserved_jobs @session) (:id job)))
             (if (empty? (:reserved_jobs @session))
@@ -431,7 +436,6 @@
                 (alter tube assoc :delay_set 
                        (conj (:delay_set @tube) (assoc updated-job :state :delayed))))
               (set-job-as-ready (assoc updated-job :state :ready)))
-            (alter session assoc :incoming_job nil)
             (alter session assoc :reserved_jobs 
                    (disj (:reserved_jobs @session) (:id updated-job)))
             (if (empty? (:reserved_jobs @session))
@@ -454,7 +458,6 @@
           (dosync
             (alter tube assoc :buried_list (conj (:buried_list @tube) updated-job))
             (alter jobs assoc (:id updated-job) updated-job)
-            (alter session assoc :incoming_job nil)
             (alter session assoc :reserved_jobs 
                    (disj (:reserved_jobs @session) (:id updated-job)))
             (if (empty? (:reserved_jobs @session))
@@ -673,24 +676,27 @@
                  j (first (:ready_set @t))]
             (if (and s j)
               (do
-                (reserve-job s j)
+                (deliver (:waiting_promise @s) j)
                 (recur (first (:waiting_list @t)) (first (:ready_set @t)))))))))))
 
 ;; Update waiting workers when they are expired
 ;;
-;; we don't update deadline_at on this task,
-;; it will be updated next time when it's reserved
+;; Find expired session (deadline_at is not nil and deadline_at is less
+;; than now). Send a nil to the promise to release the blocking.
+;;
+;; !!IMPORTANT:
+;; As timeout in deref is supported in clojure 1.3, this function is no longer
+;; need. deref will be automatically expired when timeout exceed.
 (defn update-expired-waiting-session-task []
   (dosync
     (doseq
-      [tube (vals @tubes)]
-      (let [now (current-time)
-            waiting_list (:waiting_list @tube)
-            active-func (fn [s] (or (nil? (:deadline_at @s)) (< now (:deadline_at @s))))]
-        (do
-          (alter tube assoc :waiting_list (vec (filter active-func waiting_list)))
-          (doseq [session (filter #(false? (active-func %)) waiting_list)]
-            (alter session assoc :state :idle))))))) 
+      [session (vals @sessions)]
+      (if (= :waiting (:state @session))
+        (let [now (current-time)
+              deadline (:deadline_at @session)
+              expired (and (not-nil deadline) (< now deadline))]
+          (if (true? expired)
+            (deliver (:waiting_promise @session) nil)))))))
 
 ;; Start all tasks mentioned above with 5 threads.
 ;; Tasks are executed in fixed delay.
@@ -700,8 +706,7 @@
   (schedule-task 5 
                  [update-delay-job-task 0 1] 
                  [update-expired-job-task 0 1] 
-                 [update-paused-tube-task 0 1]
-                 [update-expired-waiting-session-task 0 1]))
+                 [update-paused-tube-task 0 1]))
 
 ;; Stop the scheduler
 ;;
