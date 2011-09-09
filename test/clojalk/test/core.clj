@@ -161,7 +161,6 @@
     ;; bury some jobs
     (reserve session-w)
     (reserve session-w)
-
     (bury session-w (:id j0) 10)
     (bury session-w (:id j1) 10)
 
@@ -225,7 +224,7 @@
     (is (true? (:paused @(:expire-tube-test @tubes))))
 
     ;; working should be waiting for tube to continue
-    (run-in-background (reserve session-w))
+    (run-in-background #(reserve session-w))
 
     (sleep 0.8)
     (update-paused-tube-task)
@@ -238,44 +237,59 @@
 (deftest test-waiting-session
   (let [session-p (use (open-session :producer) "waiting-test")
         session-w (watch (open-session :worker) "waiting-test")
-        session-w2 (watch (open-session :worker) "waiting-test")]
+        session-w2 (watch (open-session :worker) "waiting-test")
+        event (promise)]
     ;; waiting for incoming job
-    (run-in-background #(reserve session-w))
-    ;; put two job for each worker
+    (run-in-background
+      #(do
+        (reserve session-w)
+        (deliver event true)))
+    ;; put a job for waiting worker
     (put session-p 10 0 20 "nice")
 
-    (is (= "nice" (:body (first (:reserved_jobs @session-w)))))
+    (deref event)
+    (is (= "nice" (:body (@jobs (first (:reserved_jobs @session-w))))))
     (is (= :working (:state @session-w)))
 
-    (let [the-job-id (:id (first (:reserved_jobs @session-w)))]
+    (let [the-job-id (:id (@jobs (first (:reserved_jobs @session-w))))
+          event2 (promise)]
       ;; another worker is waiting for incoming job
-      (run-in-background #(reserve session-w2))
+      (run-in-background
+        #(do
+          (reserve session-w2)
+          (deliver event2 true)))
 
       ;; release it
       (release session-w the-job-id 10 0)
 
       ;; it should be reserved by session-w2 immediately according
       ;; to the release sequence
+      (deref event2)
       (is (= :working (:state @session-w2)))
       (is (= :reserved (:state (get @jobs the-job-id))))
       (is (= (:id @session-w2) (:id @(:reserver (get @jobs the-job-id)))))
       (is (empty? (:waiting_list @(:waiting-test @tubes)))))
 
     ;; reserve and acquire the job
-    (run-in-background #(reserve session-w))
     (put session-p 10 0 20 "neat")
+    (reserve session-w)
     (is (= :working (:state @session-w)))
 
     ;; bury it
-    (let [the-job-id (:id (first (:reserved_jobs @session-w)))]
+    (let [the-job-id (:id (@jobs (first (:reserved_jobs @session-w))))
+          event3 (promise)]
       (bury session-w the-job-id 10)
       (is (= :idle (:state @session-w)))
       (is (= 1 (count (:buried_list @(:waiting-test @tubes)))))
 
-      (run-in-background #(reserve session-w))
+      (run-in-background
+        #(do
+          (reserve session-w)
+          (deliver event3 true)))
 
       ;; kick it to ready
       (kick session-p 10)
+      (deref event3)
       (is (= :reserved (:state (get @jobs the-job-id))))
       (is (= :working (:state @session-w))))))
 
@@ -283,9 +297,9 @@
   (let [session-w (watch (open-session :worker) "test-reserve-timeout")]
     ;;reserve an empty tube with timeout
     (run-in-background #(reserve-with-timeout session-w 0.5))
-    (is (= 1 (count (:waiting_list @(:test-reserve-timeout @tubes)))))
-    
+
     (sleep 0.7)
+    (is (= 1 (count (:waiting_list @(:test-reserve-timeout @tubes)))))
     (update-expired-waiting-session-task)
     (is (empty? (:waiting_list @(:test-reserve-timeout @tubes))))
     (is (= :idle (:state @session-w)))))
@@ -300,7 +314,7 @@
     (put session-p 2500 10 5000 "loop")
     (put session-p 1000 0 5000 "geek")
     (put session-p 999 0 400 "joke")
-    
+
     (reserve session-w)
     (let [stats (stats-tube nil tube-name)]
       (is (= (name (:name stats)) tube-name))

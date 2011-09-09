@@ -666,23 +666,18 @@
 
 ;; Enable paused tubes when they are timeout
 (defn update-paused-tube-task []
-  (dosync
-    (let [all-tubes (vals @tubes)
-          paused-tubes (filter #(true? (:paused @%)) all-tubes)
-          now (current-time)
-          expired-tubes (filter #(> now (:pause_deadline @%)) paused-tubes)]
-      (doseq [t expired-tubes]
-        (do 
-          (alter t assoc :paused false)
-          
-          ;; handle waiting session
-          (loop [s (@sessions (first (:waiting_list @t)))
-                 j (first (:ready_set @t))]
-            (if (and s j)
-              (do
-                (notify-waiting-session s j)
-                (recur (@sessions (first (:waiting_list @t)))
-                       (first (:ready_set @t)))))))))))
+  (let [all-tubes (vals @tubes)
+        paused-tubes (filter #(true? (:paused @%)) all-tubes)
+        now (current-time)
+        expired-tubes (filter #(> now (:pause_deadline @%)) paused-tubes)]
+    (doseq [t expired-tubes]
+      (dosync
+        (alter t assoc :paused false))
+
+        ;; handle waiting session
+        (let [pending-pairs (zipmap (map @sessions (:waiting_list @t)) (:ready_set @t))]
+          (doseq [s (keys pending-pairs)]
+            (notify-waiting-session s (pending-pairs s)))))))
 
 ;; Update waiting workers when they are expired
 ;;
