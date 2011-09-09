@@ -75,3 +75,10 @@
     (doseq [[task delay interval] taskdefs]
       (.scheduleWithFixedDelay scheduler (wrap-task task) delay interval (. TimeUnit SECONDS)))
     scheduler))
+
+;; utility to create a thread
+(defn run-in-background [f]
+  (let [t (Thread. f)]
+    (do
+      (.start t)
+      t)))

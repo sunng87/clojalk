@@ -31,18 +31,6 @@
     (create-session ch remote-addr type))
   (@sessions remote-addr))
 
-;; reserve watcher
-(defn reserve-watcher [key identity old-value new-value]
-  (let [old-job (:incoming_job old-value)
-        new-job (:incoming_job new-value)]
-    (if (and new-job (not (= old-job new-job)))
-      (let [ch (:channel new-value)]
-        (enqueue ch ["RESERVED" (str (:id new-job)) (:body new-job)]))))
-  (let [old-state (:state old-value)
-        new-state (:state new-value)]
-    (if (and (= :waiting old-state) (= :idle new-state))
-      (enqueue (:channel new-value) ["TIMED_OUT"]))))
-
 ;; server handlers
 (defn on-put [ch session args]
   (try
@@ -57,8 +45,9 @@
     (catch NumberFormatException e (enqueue ch ["BAD_FORMAT"]))))
 
 (defn on-reserve [ch session]
-  (add-watch session (:id session) reserve-watcher)
-  (exec-cmd "reserve" session))
+  (if-let [reserved-job (exec-cmd "reserve" session)]
+    (enqueue ch ["RESERVED" (str (:id reserved-job)) (:body reserved-job)])
+    (enqueue ch ["TIMED_OUT"])))
 
 (defn on-use [ch session args]
   (let [tube-name (first args)]
@@ -162,9 +151,12 @@
 
 (defn on-reserve-with-timeout [ch session args]
   (try
-    (let [timeout (as-int (first args))]
-      (add-watch session (:id session) reserve-watcher)
-      (exec-cmd "reserve-with-timeout" session timeout))
+    (let [timeout (as-int (first args))
+          reserved-job (exec-cmd "reserve-with-timeout" session timeout)]
+      (if-not (nil? reserved-job)
+        (enqueue ch ["RESERVED" (str (:id reserved-job)) (:body reserved-job)])
+        (enqueue ch ["TIMED_OUT"])))
+
     (catch NumberFormatException e (enqueue ch ["BAD_FORMAT"]))))
 
 (defn on-stats-job [ch args]

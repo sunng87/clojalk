@@ -60,7 +60,7 @@
 ;; * **ready_set** is a sorted set of jobs in ready state. Jobs are sorted with their priority.
 ;; * **delay_set** is a sorted set of jobs in delayed state. Jobs are sorted with their deadline.
 ;; * **buried_list** is a vector of buried jobs.
-;; * **waiting_list** is a vector of pending workers.
+;; * **waiting_list** is a vector of ids of pending workers.
 ;; * **paused** indicates whether the tube has been paused or not.
 ;; * **pause_deadline** is the time to end the pause state.
 ;; * **pauses** is a statistical field of how many times the tube paused.
@@ -82,7 +82,7 @@
 ;;   1. **:working** the worker session has reserved a job
 ;; * **reserved_jobs** id of jobs the worker session reserved
 ;;
-(defstruct Session :id :type :use :watch :state :reserved_jobs)
+(defstruct Session :id :type :use :watch :state :deadline_at :reserved_jobs)
 
 ;; A generic comparator for job:
 ;;  Compare selected field or id if equal.
@@ -184,9 +184,9 @@
 (defn- enqueue-waiting-session [session timeout]
   (let [watch-tubes (filter #(contains? (:watch @session) (:name @%)) (vals @tubes))
         deadline_at (if (nil? timeout) nil (+ (current-time) (* timeout 1000)))
-        result (promise)]
+        result (agent (promise))]
     (doseq [tube watch-tubes]
-      (alter tube assoc :waiting_list (conj (:waiting_list @tube) session)))
+      (alter tube assoc :waiting_list (conj (:waiting_list @tube) (:id @session))))
     (alter session assoc
                :state :waiting
                :deadline_at deadline_at
@@ -200,8 +200,9 @@
 (defn- dequeue-waiting-session [session state]
   (let [watch-tubes (filter #(contains? (:watch @session) (:name @%)) (vals @tubes))]
     (doseq [tube watch-tubes]
-      (alter tube assoc :waiting_list (remove-item (:waiting_list @tube) session)))
+      (alter tube assoc :waiting_list (apply vector (remove-item (:waiting_list @tube) (:id @session)))))
     (alter session assoc :state state
+                         :deadline_at nil
                          :waiting_promise nil)))
 
 ;; Reserve the job with the session.
@@ -225,7 +226,8 @@
 ;; Finally, this function returns the reserved job.
 ;;
 (defn- reserve-job [session job]
-  (dequeue-waiting-session session (if (nil? job) :idle :working))
+  (dosync
+    (dequeue-waiting-session session (if (nil? job) :idle :working)))
   (if-not (nil? job)
     (let [tube ((:tube job) @tubes)
           deadline (+ (current-time) (* (:ttr job) 1000))
@@ -240,6 +242,10 @@
         (alter session assoc :reserved_jobs
                (conj (:reserved_jobs @session) (:id updated-top-job)))
         updated-top-job))))
+
+;; We use an agent to deliver job to promise, to prevent STM retry
+(defn- notify-waiting-session [session job]
+  (send (:waiting_promise @session) deliver job))
 
 ;; Mark the job as ready. This is referenced when
 ;;
@@ -259,8 +265,8 @@
     (do
       (alter jobs assoc (:id job) (assoc job :state :ready))
       (alter tube assoc :ready_set (conj (:ready_set @tube) job))
-      (if-let [s (first (:waiting_list @tube))]
-        (deliver (:waiting_promise @s) job)))))
+      (if-let [s (@sessions (first (:waiting_list @tube)))]
+        (notify-waiting-session s job)))))
 
 ;; Create a session and add it to the `sessions`
 ;; There are two signatures for this function. If you do not provide id, a uuid will be
@@ -272,7 +278,7 @@
 (defn open-session 
   ([type] (open-session (uuid) type))
   ([id type & sesssion-data] 
-    (let [session (ref (struct Session id type :default #{:default} nil :idle nil #{}))]
+    (let [session (ref (struct Session id type :default #{:default} :idle nil #{}))]
       (dosync
         (if (not-empty sesssion-data)
           (alter session assoc-all sesssion-data))
@@ -357,10 +363,8 @@
   (dosync
     (enqueue-waiting-session session timeout))
   (if-let [top-job (top-ready-job session)]
-    (deliver (:waiting_promise @session) top-job))
-  (if (nil? timeout)
-    (reserve-job session (deref (:waiting_promise @session)))
-    (reserve-job session (deref (:waiting_promise @session) (* timeout 1000) nil))))
+    (notify-waiting-session session top-job))
+  (reserve-job session (deref @(:waiting_promise @session))))
 
 ;; `reserve` is a worker task. It will wait for available jobs without timeout.
 (defcommand "reserve" [session]
@@ -672,12 +676,13 @@
           (alter t assoc :paused false)
           
           ;; handle waiting session
-          (loop [s (first (:waiting_list @t))
+          (loop [s (@sessions (first (:waiting_list @t)))
                  j (first (:ready_set @t))]
             (if (and s j)
               (do
-                (deliver (:waiting_promise @s) j)
-                (recur (first (:waiting_list @t)) (first (:ready_set @t)))))))))))
+                (notify-waiting-session s j)
+                (recur (@sessions (first (:waiting_list @t)))
+                       (first (:ready_set @t)))))))))))
 
 ;; Update waiting workers when they are expired
 ;;
@@ -685,8 +690,8 @@
 ;; than now). Send a nil to the promise to release the blocking.
 ;;
 ;; !!IMPORTANT:
-;; As timeout in deref is supported in clojure 1.3, this function is no longer
-;; need. deref will be automatically expired when timeout exceed.
+;; As timeout in deref is supported in clojure 1.3, this function will
+;; be removed when clojalk and its dependencies ported to 1.3
 (defn update-expired-waiting-session-task []
   (dosync
     (doseq
@@ -694,9 +699,9 @@
       (if (= :waiting (:state @session))
         (let [now (current-time)
               deadline (:deadline_at @session)
-              expired (and (not-nil deadline) (< now deadline))]
+              expired (and (not-nil deadline) (> now deadline))]
           (if (true? expired)
-            (deliver (:waiting_promise @session) nil)))))))
+            (notify-waiting-session session nil)))))))
 
 ;; Start all tasks mentioned above with 5 threads.
 ;; Tasks are executed in fixed delay.
@@ -706,7 +711,8 @@
   (schedule-task 5 
                  [update-delay-job-task 0 1] 
                  [update-expired-job-task 0 1] 
-                 [update-paused-tube-task 0 1]))
+                 [update-paused-tube-task 0 1]
+                 [update-expired-waiting-session-task 0 1]))
 
 ;; Stop the scheduler
 ;;
