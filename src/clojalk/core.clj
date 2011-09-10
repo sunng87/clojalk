@@ -200,7 +200,7 @@
 (defn- dequeue-waiting-session [session state]
   (let [watch-tubes (filter #(contains? (:watch @session) (:name @%)) (vals @tubes))]
     (doseq [tube watch-tubes]
-      (alter tube assoc :waiting_list (apply vector (remove-item (:waiting_list @tube) (:id @session)))))
+      (alter tube assoc :waiting_list (into [] (remove-item (:waiting_list @tube) (:id @session)))))
     (alter session assoc :state state
                          :deadline_at nil
                          :waiting_promise nil)))
