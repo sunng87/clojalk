@@ -196,7 +196,7 @@
 (defn- dequeue-waiting-session [session]
   (let [watch-tubes (filter #(contains? (:watch @session) (:name @%)) (vals @tubes))]
     (doseq [tube watch-tubes]
-      (alter tube assoc :waiting_list (remove-item (:waiting_list @tube) session)))
+      (alter tube assoc :waiting_list (into [] (remove-item (:waiting_list @tube) session))))
     (alter session assoc :state :working)))
 
 ;; Reserve the job with the session. Steps:
@@ -659,22 +659,18 @@
 
 ;; Enable paused tubes when they are timeout
 (defn update-paused-tube-task []
-  (dosync
-    (let [all-tubes (vals @tubes)
-          paused-tubes (filter #(true? (:paused @%)) all-tubes)
-          now (current-time)
-          expired-tubes (filter #(> now (:pause_deadline @%)) paused-tubes)]
-      (doseq [t expired-tubes]
-        (do 
-          (alter t assoc :paused false)
-          
-          ;; handle waiting session
-          (loop [s (first (:waiting_list @t))
-                 j (first (:ready_set @t))]
-            (if (and s j)
-              (do
-                (reserve-job s j)
-                (recur (first (:waiting_list @t)) (first (:ready_set @t)))))))))))
+  (let [all-tubes (vals @tubes)
+        paused-tubes (filter #(true? (:paused @%)) all-tubes)
+        now (current-time)
+        expired-tubes (filter #(> now (:pause_deadline @%)) paused-tubes)]
+    (doseq [t expired-tubes]
+      (dosync 
+        (alter t assoc :paused false)
+        
+        ;; handle waiting session
+        (let [pending-pairs (zipmap (:waiting_list @t) (:ready_set @t))]
+          (doseq [s (keys pending-pairs)]
+            (reserve-job s (pending-pairs s))))))))
 
 ;; Update waiting workers when they are expired
 ;;
@@ -683,14 +679,15 @@
 (defn update-expired-waiting-session-task []
   (dosync
     (doseq
-      [tube (vals @tubes)]
-      (let [now (current-time)
-            waiting_list (:waiting_list @tube)
-            active-func (fn [s] (or (nil? (:deadline_at @s)) (< now (:deadline_at @s))))]
-        (do
-          (alter tube assoc :waiting_list (vec (filter active-func waiting_list)))
-          (doseq [session (filter #(false? (active-func %)) waiting_list)]
-            (alter session assoc :state :idle))))))) 
+      [session (vals @sessions)]
+      (if (= :waiting (:state @session))
+        (let [now (current-time)
+              deadline (:deadline_at @session)
+              expired (and (not-nil deadline) (> now deadline))]
+          (if (true? expired)
+            (do
+              (dequeue-waiting-session session)
+              (alter session assoc :state :idle))))))))
 
 ;; Start all tasks mentioned above with 5 threads.
 ;; Tasks are executed in fixed delay.
