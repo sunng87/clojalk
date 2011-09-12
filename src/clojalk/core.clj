@@ -114,7 +114,7 @@
           0))) ; pause command counter
 
 ;; Default job id generator. We use an atomic integer to store id.
-(defonce id-counter (atom 0))
+(defonce id-counter (atom (long 0)))
 ;; Get next id by increase the id-counter
 (defn next-id []
   (swap! id-counter inc))
