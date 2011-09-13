@@ -243,7 +243,7 @@
                     (enqueue ch ["INTERNAL_ERROR"]))))
          (enqueue ch ["UNKNOWN_COMMAND"])))))
 
-(def *clojalk-port*)
+(def *clojalk-port* 10000)
 (defn start-server []
   (start-tcp-server default-handler {:port *clojalk-port*, :frame beanstalkd-codec}))
 
