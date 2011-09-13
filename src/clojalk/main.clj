@@ -11,7 +11,8 @@
   (let [prop-file-name (or (first args) "clojalk.properties")
         props (read-properties prop-file-name)]
     (start-tasks)
-    (start-server (as-int (property props "server.port")))
+    (binding [*clojalk-port* (as-int (property props "server.port"))]
+      (start-server))
     (start-jmx-server)
     (println (str "Clojalk server started, listening on " 
                   (property props "server.port")))))
