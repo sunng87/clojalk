@@ -7,9 +7,9 @@
 
 (ns clojalk.wal
   (:refer-clojure :exclude [use peek])
-  (:use clojalk.core)
+  (:use [clojalk core utils])
   (:use clojure.java.io)
-  (:import [java.nio ByteBuffer IntBuffer]))
+  (:import [java.nio ByteBuffer]))
 
 (def job-base-size 58)
 
@@ -96,31 +96,30 @@
 ;; I use a transient map here to simplify the code and improve performance
 (defn read-job [stream]
   (let [base-bytes (ByteBuffer/wrap (read-bytes stream job-base-size))
-        tube-name-length (.get (IntBuffer/wrap (read-bytes stream 4)))
-        tube-name (if (zero? tube-name-length) 
-                    nil 
-                    (String. (read-bytes stream tube-name-length) "UTF8"))
-        job-body-length (.get (IntBuffer/wrap (read-bytes stream 4)))
-        job-body (if (zero? job-body-length) 
-                   nil 
+        tube-name-length (.getInt (ByteBuffer/wrap (read-bytes stream 4)))
+        tube-name (if-not (zero? tube-name-length)
+                    (keyword (String. (read-bytes stream tube-name-length) "UTF8")))
+        job-body-length (.getInt (ByteBuffer/wrap (read-bytes stream 4)))
+        job-body (if-not (zero? job-body-length) 
                    (String. (read-bytes stream tube-name-length) "UTF8"))
         
-        job (transient {})]
-    (assoc! job :id (.getLong base-bytes))
-    (assoc! job :delay (.getInt base-bytes))
-    (assoc! job :ttr (.getInt base-bytes))
-    (assoc! job :priority (.getInt base-bytes))
-    (assoc! job :created_at (.getLong base-bytes))
-    (assoc! job :deadline_at (.getLong base-bytes))
-    (assoc! job :state (enum-state (.getShort base-bytes)))
-    (assoc! job :reserves (.getInt base-bytes))
-    (assoc! job :timeouts (.getInt base-bytes))
-    (assoc! job :releases (.getInt base-bytes))
-    (assoc! job :buries (.getInt base-bytes))
-    (assoc! job :kicks (.getInt base-bytes))
-    (if-not (nil? tube-name) (assoc! job :tube tube-name))
-    (if-not (nil? job-body) (assoc! job :body job-body))
-    (persistent! job)))
+        job {}]
+    (->
+      job
+      (assoc :id (.getLong base-bytes))
+      (assoc :delay (.getInt base-bytes))
+      (assoc :ttr (.getInt base-bytes))
+      (assoc :priority (.getInt base-bytes))
+      (assoc :created_at (.getLong base-bytes))
+      (assoc :deadline_at (.getLong base-bytes))
+      (assoc :state (enum-state (.getShort base-bytes)))
+      (assoc :reserves (.getInt base-bytes))
+      (assoc :timeouts (.getInt base-bytes))
+      (assoc :releases (.getInt base-bytes))
+      (assoc :buries (.getInt base-bytes))
+      (assoc :kicks (.getInt base-bytes))
+      (assoc :tube tube-name)
+      (assoc :body job-body))))
 
 ;; Read a bin file into a vector of job entries
 (defn read-file [bin-log-file]

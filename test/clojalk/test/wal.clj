@@ -1,10 +1,11 @@
 (ns clojalk.test.wal
   (:refer-clojure :exclude [use peek])
   (:use [clojalk core wal utils])
-  (:use [clojure.test]))
+  (:use [clojure.test])
+  (:import [java.io ByteArrayInputStream]))
 
 (def job (struct Job 100 0 1000 1023 
-                 0 nil :ready
+                 0 0 :ready
                  :default "tomcat" nil 0 0 0 0 0))
 
 (defn- getString [buf length]
@@ -51,3 +52,10 @@
          0 (.getInt buffer)
          0 (.getInt buffer))))
 
+
+(deftest test-read-job
+  (let [bytes (.array (job-to-bin job true))
+        stream (ByteArrayInputStream. bytes)
+        rjob (read-job stream)]
+    (doseq [k (keys job)]
+         (is (= (job k) (rjob k))))))
