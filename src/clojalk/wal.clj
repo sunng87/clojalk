@@ -1,4 +1,13 @@
+;; # Clojalk WAL module
+;;
+;; WAL module provides persistent facility for clojalk.
+;; Jobs are log into a sequenced binary file when updated. The file will be
+;; replayed when clojalk restarting.
+;;
+
 (ns clojalk.wal
+  (:refer-clojure :exclude [use peek])
+  (:use clojalk.core)
   (:use clojure.java.io)
   (:import [java.nio ByteBuffer IntBuffer]))
 
@@ -121,16 +130,30 @@
         jobs
         (recur s (conj jobs (read-job s)))))))
 
-;; Scan directory to find files whose name endswith .bin
+;; Scan directory to find files whose name ends with .bin
 (defn scan-dir [dir-path]
   (filter #(.endsWith (.getName %) ".bin") (.listFiles (file dir-path))))
 
-;; default clojalk log directory
-(def *clojalk-log-dir*)
+;; default clojalk log directory, to be overwrite by configuration
+(def *clojalk-log-dir* "./binlogs/")
 
-;; Replay logs and load jobs
-;; 
+
+
+;; ## Replay logs and load jobs
+;;
+;; Read logs files from configured directory, load job records from them.
+;; Jobs will be reloaded into memory. Job body and tube name won't be overwrite when records
+;; with same id are found because there will be only one full record for each job, which is
+;; also the first record for it.
+;; After all jobs are loaded into `clojalk.core/jobs`, we will update their references in
+;; each tube (ready_set, delay_set and bury_list). (Tubes are created if not found.)
+;;
+;; After all done, remove the log files.
+;;
+;; All the statistical information about commands invocation are lost when
+;; server restarted.
+;;
 (defn replay-logs []
   (let [bin-log-files (scan-dir *clojalk-log-dir*)]
-    (doseq [bin-log-file bin-log-files]
-      (read-file bin-log-file)))) ;;TODO
+    (doseq [job-recs (map read-file bin-log-files)]
+      ))) ;;TODO
