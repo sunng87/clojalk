@@ -101,7 +101,7 @@
                     (keyword (String. (read-bytes stream tube-name-length) "UTF8")))
         job-body-length (.getInt (ByteBuffer/wrap (read-bytes stream 4)))
         job-body (if-not (zero? job-body-length) 
-                   (String. (read-bytes stream tube-name-length) "UTF8"))
+                   (String. (read-bytes stream job-body-length) "UTF8"))
         
         job {}]
     (->
