@@ -122,12 +122,13 @@
       (assoc :body job-body))))
 
 ;; Read a bin file into a vector of job entries
-(defn read-file [bin-log-file]
+(defn read-file [bin-log-file handler]
   (with-open [stream (input-stream bin-log-file)]
-    (loop [s stream jobs []]
-      (if (zero? (.available s))
-        jobs
-        (recur s (conj jobs (read-job s)))))))
+    (loop [s stream]
+      (let [job (read-job s)]
+        (handler job))
+      (if-not (zero? (.available s))
+        (recur s)))))
 
 ;; Scan directory to find files whose name ends with .bin
 (defn scan-dir [dir-path]
@@ -136,7 +137,13 @@
 ;; default clojalk log directory, to be overwrite by configuration
 (def *clojalk-log-dir* "./binlogs/")
 
+;; Test if a jobrec is a full record
+(defn is-full-record [j]
+  (not (nil? (:tube j))))
 
+;; 
+(defn replay-handler [j]
+  )
 
 ;; ## Replay logs and load jobs
 ;;
@@ -154,5 +161,4 @@
 ;;
 (defn replay-logs []
   (let [bin-log-files (scan-dir *clojalk-log-dir*)]
-    (doseq [job-recs (map read-file bin-log-files)]
-      ))) ;;TODO
+    (doall (map #(read-file % replay-handler) bin-log-files))))
