@@ -56,6 +56,6 @@
 (deftest test-read-job
   (let [bytes (.array (job-to-bin job true))
         stream (ByteArrayInputStream. bytes)
-        rjob (read-job stream nil)]
+        rjob (read-job stream)]
     (doseq [k (keys job)]
          (is (= (job k) (rjob k))))))
