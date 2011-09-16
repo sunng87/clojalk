@@ -181,8 +181,11 @@
 
 ;; Update id counter after all job records are loaded from logs
 ;;
+;; IMPORTANT! Append a **0** into the job key collection to prevent
+;; exception when there is no jobs
 (defn- update-id-counter []
-  (swap! clojalk.core/id-counter (constantly (long  (apply max (keys @clojalk.core/jobs))))))
+  (swap! clojalk.core/id-counter
+    (constantly (long  (apply max (conj (keys @clojalk.core/jobs) 0))))))
 
 ;; ## Replay logs and load jobs
 ;;
@@ -199,11 +202,11 @@
 ;; server restarted.
 ;;
 (defn replay-logs []
-  (let [bin-log-files (scan-dir *clojalk-log-dir*)]
+  (if-let [bin-log-files (scan-dir *clojalk-log-dir*)]
     (dosync
       (doall (map #(read-file % replay-handler) bin-log-files))
-      (replay-tubes)))
-  (update-id-counter)
+      (replay-tubes))
+    (update-id-counter))
   (empty-dir *clojalk-log-dir*))
 
 ;; log files are split into several parts
@@ -215,6 +218,11 @@
 
 ;; Create empty log files into `log-files`. This is invoked after legacy logs replayed.
 (defn init-log-files []
+  (let [dir (file *clojalk-log-dir*)]
+    (if-not (.exists dir) (.mkdirs dir))
+    (if-not (.exists dir)
+      (throw (IllegalStateException.
+               (str "Failed to create WAL directory: " (.getAbsolutePath dir))))))
   (let [ss (map #(output-stream (file *clojalk-log-dir* (str "clojalk-" % ".bin")))
              (range *clojalk-log-count*))]
     (dosync (ref-set log-files ss))))
@@ -234,3 +242,9 @@
 (defn dump-all-jobs []
   (doseq [j (vals @clojalk.core/jobs)]
     (write-job j true)))
+
+;; Start proceduce of WAL module invoked before server and task start
+(defn start-wal []
+  (replay-logs)
+  (init-log-files)
+  (dump-all-jobs))
