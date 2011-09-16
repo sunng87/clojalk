@@ -7,7 +7,8 @@
 
 (ns clojalk.wal
   (:refer-clojure :exclude [use peek])
-  (:use [clojalk core utils])
+  (:require clojalk.core)
+  (:use [clojalk utils])
   (:use clojure.java.io)
   (:import [java.nio ByteBuffer]))
 
@@ -101,25 +102,23 @@
                     (keyword (String. (read-bytes stream tube-name-length) "UTF8")))
         job-body-length (.getInt (ByteBuffer/wrap (read-bytes stream 4)))
         job-body (if-not (zero? job-body-length) 
-                   (String. (read-bytes stream job-body-length) "UTF8"))
-        
-        job {}]
-    (->
-      job
-      (assoc :id (.getLong base-bytes))
-      (assoc :delay (.getInt base-bytes))
-      (assoc :ttr (.getInt base-bytes))
-      (assoc :priority (.getInt base-bytes))
-      (assoc :created_at (.getLong base-bytes))
-      (assoc :deadline_at (.getLong base-bytes))
-      (assoc :state (enum-state (.getShort base-bytes)))
-      (assoc :reserves (.getInt base-bytes))
-      (assoc :timeouts (.getInt base-bytes))
-      (assoc :releases (.getInt base-bytes))
-      (assoc :buries (.getInt base-bytes))
-      (assoc :kicks (.getInt base-bytes))
-      (assoc :tube tube-name)
-      (assoc :body job-body))))
+                   (String. (read-bytes stream job-body-length) "UTF8"))]
+    (assoc
+      {}
+      :id (.getLong base-bytes)
+      :delay (.getInt base-bytes)
+      :ttr (.getInt base-bytes)
+      :priority (.getInt base-bytes)
+      :created_at (.getLong base-bytes)
+      :deadline_at (.getLong base-bytes)
+      :state (enum-state (.getShort base-bytes))
+      :reserves (.getInt base-bytes)
+      :timeouts (.getInt base-bytes)
+      :releases (.getInt base-bytes)
+      :buries (.getInt base-bytes)
+      :kicks (.getInt base-bytes)
+      :tube tube-name
+      :body job-body)))
 
 ;; Read a bin file into a vector of job entries
 (defn read-file [bin-log-file handler]
@@ -134,6 +133,11 @@
 (defn scan-dir [dir-path]
   (filter #(.endsWith (.getName %) ".bin") (.listFiles (file dir-path))))
 
+;; Delete logging files under the dir
+(defn empty-dir [dir-path]
+  (doseq [f (scan-dir dir-path)]
+    (delete-file f)))
+
 ;; default clojalk log directory, to be overwrite by configuration
 (def *clojalk-log-dir* "./binlogs/")
 
@@ -141,9 +145,42 @@
 (defn is-full-record [j]
   (not (nil? (:tube j))))
 
-;; 
+;; Load a job record into memory
+;;
+;; 1. Test if the job record is a full record.
+;; 2. True: Add the full record to jobs
+;; 3. False: Merge the record with new one / or just remove the record (`:invalid` state)
+;;
+;; Merge Strategy:
+;; 1. if the job record is `:reserved`, just reset it to `:ready`
+;; 2. Merge all fields of the record except tube-name and job-body
+;; (which are not stored in non-full record)
+;;
 (defn replay-handler [j]
-  )
+  (if (is-full-record j)
+    (alter clojalk.core/jobs assoc (:id j) j)
+    (if (= :invalid (:state j))
+      (alter clojalk.core/jobs dissoc (:id j))
+      (let [id (:id j)
+            jr (if (= :reserved (:state j)) (assoc j :state :ready) j)]
+        (alter clojalk.core/jobs assoc id
+          (merge-with #(if (nil? %2) %1 %2) (@clojalk.core/jobs id) jr))))))
+
+;; Construct tube data structures. Load job references into certain container of
+;; tube. Create a new tube if not found.
+;;
+(defn- replay-tubes []
+  (doseq [jr (vals @clojalk.core/jobs)]
+    (let [tube (@clojalk.core/tubes (:tube jr))]
+      (if (nil? tube)
+        (alter clojalk.core/tubes assoc (:tube jr) (clojalk.core/make-tube (:tube jr))))
+      (case (:state jr)
+        :ready (alter tube assoc :ready_set (conj (:ready_set @tube) jr))
+        :buried (alter tube assoc :buried_lsit (conj (:buried_lsit @tube) jr))
+        :delayed (alter tube assoc :delay_set (conj (:delay_set @tube) jr))))))
+
+(defn- update-id-counter []
+  (swap! clojalk.core/id-counter (constantly (long  (apply max (keys @clojalk.core/jobs))))))
 
 ;; ## Replay logs and load jobs
 ;;
@@ -161,4 +198,8 @@
 ;;
 (defn replay-logs []
   (let [bin-log-files (scan-dir *clojalk-log-dir*)]
-    (doall (map #(read-file % replay-handler) bin-log-files))))
+    (dosync
+      (doall (map #(read-file % replay-handler) bin-log-files))
+      (replay-tubes)))
+  (update-id-counter)
+  (empty-dir *clojalk-log-dir*))
