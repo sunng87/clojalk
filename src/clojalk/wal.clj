@@ -179,6 +179,8 @@
         :buried (alter tube assoc :buried_lsit (conj (:buried_lsit @tube) jr))
         :delayed (alter tube assoc :delay_set (conj (:delay_set @tube) jr))))))
 
+;; Update id counter after all job records are loaded from logs
+;;
 (defn- update-id-counter []
   (swap! clojalk.core/id-counter (constantly (long  (apply max (keys @clojalk.core/jobs))))))
 
@@ -203,3 +205,32 @@
       (replay-tubes)))
   (update-id-counter)
   (empty-dir *clojalk-log-dir*))
+
+;; log files are split into several parts
+;; this var is referenced only when initializing files
+(def *clojalk-log-count* 8)
+
+;; log file streams
+(def log-files (ref []))
+
+;; Create empty log files into `log-files`. This is invoked after legacy logs replayed.
+(defn init-log-files []
+  (let [ss (map #(output-stream (file *clojalk-log-dir* (str "clojalk-" % ".bin")))
+             (range *clojalk-log-count*))]
+    (dosync (ref-set log-files ss))))
+
+;; Write the job record into certain log stream.
+;; Here we use a `mod` function to hash job id into a log stream index.
+;;
+(defn write-job [j full?]
+  (let [id (:id j)
+        log-files-count (count @log-files)
+        log-file-index (mod id log-files-count)
+        log-stream (nth @log-files log-file-index)
+        job-bytes (.array (job-to-bin j full?))]
+    (.write log-stream job-bytes)))
+
+;; Write all jobs into log streams as full record
+(defn dump-all-jobs []
+  (doseq [j (vals @clojalk.core/jobs)]
+    (write-job j true)))
