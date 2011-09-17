@@ -20,5 +20,8 @@
       tube-name (first args)
       job-count (Integer/valueOf (second args))]
   (use client tube-name)
-  (doall
-    (map (put client 500 0 1000 (byte-length job-body ) job-body) (range job-count))))
+  (loop [i 0]
+    (if-not (= i job-count)
+      (do
+        (put client 500 0 1000 (byte-length job-body ) job-body)
+        (recur (inc i))))))

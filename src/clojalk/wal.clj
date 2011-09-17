@@ -10,7 +10,8 @@
   (:require clojalk.data)
   (:use [clojalk utils])
   (:use clojure.java.io)
-  (:import [java.nio ByteBuffer]))
+  (:import [java.nio ByteBuffer])
+  (:import [java.io FileOutputStream]))
 
 (def job-base-size 58)
 
@@ -205,10 +206,12 @@
 ;;
 (defn replay-logs []
   (if-let [bin-log-files (scan-dir *clojalk-log-dir*)]
-    (dosync
-      (doall (map #(read-file % replay-handler) bin-log-files))
-      (replay-tubes))
-    (update-id-counter))
+    (do
+      (dosync
+        (doall (map #(read-file % replay-handler) bin-log-files))
+        (replay-tubes))
+      (println (str (count @clojalk.data/jobs) " jobs loaded from write-ahead logs."))
+      (update-id-counter)))
   (empty-dir *clojalk-log-dir*))
 
 ;; log files are split into several parts
@@ -225,12 +228,23 @@
     (if-not (.exists dir)
       (throw (IllegalStateException.
                (str "Failed to create WAL directory: " (.getAbsolutePath dir))))))
-  (let [ss (map #(output-stream (file *clojalk-log-dir* (str "clojalk-" % ".bin")))
-             (range *clojalk-log-count*))]
-    (dosync (ref-set log-files ss))))
-
+  (dosync
+    (loop [i 0]
+      (if-not (= i *clojalk-log-count*)
+        (do
+          (alter log-files conj 
+                 (agent (FileOutputStream. 
+                          (file *clojalk-log-dir* (str "clojalk-" i ".bin")) true)))
+          (recur (inc i)))))))
+  
 ;; A flag for enable/disable WAL
 (def *clojalk-log-enabled* false)
+
+;; A convenience function to write and flush stream
+(defn- stream-write [s data]
+  (do
+    (.write s data)
+    s))
 
 ;; Write the job record into certain log stream.
 ;; Here we use a `mod` function to hash job id into a log stream index.
@@ -245,8 +259,7 @@
           log-file-index (mod id log-files-count)
           log-stream (nth @log-files log-file-index)
           job-bytes (.array (job-to-bin j full?))]
-      (.write log-stream job-bytes)
-      (.flush log-stream))))
+      (send-off log-stream stream-write job-bytes))))
 
 ;; Write all jobs into log streams as full record
 (defn dump-all-jobs []
