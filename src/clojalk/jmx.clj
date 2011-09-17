@@ -1,6 +1,6 @@
 (ns clojalk.jmx
   (:refer-clojure :exclude [use peek])
-  (:use [clojalk core utils])
+  (:use [clojalk data utils])
   (:require [clojure.contrib.jmx :as jmx])
   (:import [clojure.contrib.jmx Bean]))
 

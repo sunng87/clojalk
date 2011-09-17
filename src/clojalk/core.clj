@@ -19,143 +19,10 @@
 ;;
 (ns clojalk.core
   (:refer-clojure :exclude [use peek])
-  (:use [clojalk.utils]))
-
-;; ## Data Structures and constructors
-
-;; Structure definition for ***Job***
-;; **Job** is the basic task unit in clojalk. The fields are described below.
-;;
-;; * **id** a numerical unique id of this Job
-;; * **delay** delayed time in seconds.
-;; * **ttr** time-to-run in seconds. TTR is the max time that a worker could reserve this job.
-;; The job will be released once it's timeout.
-;; * **priority** describes the priority of jobs. The value should be in range of 0-65535.
-;; Job with lower numerical value has higher priority.
-;; * **created_at** is the timestamp when job was created, in milliseconds.
-;; * **deadline_at** is to stored the deadline of a job, in milliseconds. The fields has
-;; multiple meaning according to the *state*. In a word, it's the time that job should update
-;; its state.
-;; * **state** is a keyword enumeration. It's the most important field that describes
-;; the life-cycle of a Job.
-;;   1. **:ready** the job is ready for worker to consume.
-;;   1. **:delayed** the job is not ready until the deadline hit.
-;;   1. **:reserved** indicates the job is reserved by a worker at that time.
-;;   1. **:buried** indicatets the job could not be reserved until someone ***kick***s it.
-;;   1. **:invalid** means the job has been deleted.
-;; * **tube** is the keyword tube name of this job
-;; * **body** the body of this job
-;; * **reserver** the session holds this job. nil if the job is not reserved.
-;; * **reserves**, **timeouts**, **releases**, **buries** and **kicks** are statistical field
-;; to indicate how many times the job reserved, timeout, released, buried and kicked.
-;;
-(defstruct Job :id :delay :ttr :priority :created_at
-  :deadline_at :state :tube :body :reserver
-  :reserves :timeouts :releases :buries :kicks)
-
-;; Structure definition for Tube
-;; Tube is a collection of jobs, similar to the database in RDBMS.
-;;
-;; * **name** the name of this tube, as keyword.
-;; * **ready_set** is a sorted set of jobs in ready state. Jobs are sorted with their priority.
-;; * **delay_set** is a sorted set of jobs in delayed state. Jobs are sorted with their deadline.
-;; * **buried_list** is a vector of buried jobs.
-;; * **waiting_list** is a vector of pending workers.
-;; * **paused** indicates whether the tube has been paused or not.
-;; * **pause_deadline** is the time to end the pause state.
-;; * **pauses** is a statistical field of how many times the tube paused.
-;;
-(defstruct Tube :name :ready_set :delay_set :buried_list 
-  :waiting_list :paused :pause_deadline :pauses)
-
-;; Structure definition for Session (connection in beanstalkd)
-;; Session represents all clients connected to clojalk.
-;;
-;; * **id** the id of this session
-;; * **type** is a keyword enumeration indicates the role of a session. (worker or producer)
-;; * **use** the tube name that producer session is using
-;; * **watch** a list of tube names that worker session is watching
-;; * **deadline_at** is the timeout for reserve request of worker session
-;; * **state** of a worker session:
-;;   1. **:idle** the worker session is idle
-;;   1. **:waiting** the worker session has sent reserve request, is now waiting for jobs
-;;   1. **:working** the worker session has reserved a job
-;; * **incoming_job** the job worker session just reserved
-;; * **reserved_jobs** id of jobs the worker session reserved
-;;
-(defstruct Session :id :type :use :watch :deadline_at :state 
-  :incoming_job :reserved_jobs)
-
-;; A generic comparator for job:
-;;  Compare selected field or id if equal.
-(defn- job-comparator [field j1 j2]
-  (cond 
-    (< (field j1) (field j2)) -1
-    (> (field j1) (field j2)) 1
-    :else (< (:id j1) (:id j2))))
-
-;; Curried job-comparator by *priority*
-(def priority-comparator
-  (partial job-comparator :priority))
-
-;; Curried job-comparator by *delay*
-(def delay-comparator
-  (partial job-comparator :delay))
-
-;; Function to create an empty tube.
-(defn make-tube [name]
-  (ref (struct Tube (keyword name) ; name
-          (sorted-set-by priority-comparator) ; ready_set
-          (sorted-set-by delay-comparator) ; delay_set
-          [] ; buried_list
-          [] ; waiting queue
-          false ; paused state
-          -1 ; pause timeout
-          0))) ; pause command counter
-
-;; Default job id generator. We use an atomic integer to store id.
-(defonce id-counter (atom (long 0)))
-;; Get next id by increase the id-counter
-(defn next-id []
-  (swap! id-counter inc))
-
-;; Function to create an empty job with given data.
-(defn make-job [priority delay ttr tube body]
-  (let [id (next-id)
-        now (current-time)
-        created_at now
-        deadline_at (+ now (* 1000 delay))
-        state (if (> delay 0) :delayed :ready)]
-    (struct Job id delay ttr priority created_at 
-            deadline_at state tube body nil
-            0 0 0 0 0)))
+  (:use [clojalk data utils])
+  (:require [clojalk.wal]))
 
 
-;; ## Stateful containers hold data at runtime
-
-;;
-;; Field to indicate if the server is in a drain mode.
-;; If the server is drained, it doesn't accept new job any more.
-(defonce drain (atom false))
-;; Function to toggle drain mode.
-(defn toggle-drain []
-  (swap! drain not))
-
-;; **jobs** is a referenced hash map holds all jobs with id as key.
-(defonce jobs (ref {}))
-;; **tubes** is a referenced hash map for all tubes, with their name as key
-(defonce tubes (ref {:default (make-tube "default")}))
-;; **commands** is for command stats. commands are assigned into this map when it's defined
-(defonce commands (ref {}))
-;; start time
-(defonce start-at (current-time))
-
-;; All **sessions** are stored in this referenced map. id as key.
-(defonce sessions (ref {}))
-;; A statistical field for job timeout count.
-;; Note that we use a ref here because timeout check of jobs are inside a dosync block which
-;; should be free of side-effort. If we use an atom here, it could be error in retry.
-(defonce job-timeouts (ref 0))
 
 ;; ## Functions to handle clojalk logic
 
@@ -232,6 +99,7 @@
       (alter session assoc :incoming_job updated-top-job)
       (alter session assoc :reserved_jobs 
              (conj (:reserved_jobs @session) (:id updated-top-job)))
+      (clojalk.wal/write-job updated-top-job false)
       updated-top-job)))
 
 ;; Mark the job as ready. This is referenced when
@@ -310,6 +178,7 @@
     (let [tube ((:use @session) @tubes)
           job (make-job priority delay ttr (:name @tube) body)]
       (do
+        (clojalk.wal/write-job job true)
         (dosync
           (case (:state job)
             :delayed (do 
@@ -354,8 +223,7 @@
 ;; `reserve` is a worker task. It will wait for available jobs without timeout.
 ;; BE CAUTION: this is only for server mode. If you use clojalk as a embedded library,
 ;; `reserve` will return nil at once if there is no job ready.
-;; TODO Maybe we can use some agent to block the thread and to keep server mode and
-;; embedded mode in consistent.
+;;
 (defcommand "reserve" [session]
   (reserve-with-timeout session nil))
 
@@ -405,6 +273,7 @@
                    (disj (:reserved_jobs @session) (:id job)))
             (if (empty? (:reserved_jobs @session))
               (alter session assoc :state :idle)))
+          (clojalk.wal/write-job (assoc job :state :invalid) false)
           (assoc job :state :invalid))))))
 
 ;; `release` is a worker command to free reserved job and changes its
@@ -436,6 +305,7 @@
                    (disj (:reserved_jobs @session) (:id updated-job)))
             (if (empty? (:reserved_jobs @session))
               (alter session assoc :state :idle)))
+          (clojalk.wal/write-job updated-job false)
           updated-job)))))
 
 ;; `bury` is a worker task. And only reserved job could be buried by
@@ -459,6 +329,7 @@
                    (disj (:reserved_jobs @session) (:id updated-job)))
             (if (empty? (:reserved_jobs @session))
               (alter session assoc :state :idle)))
+          (clojalk.wal/write-job updated-job false)
           updated-job)))))
 
 ;; `kick` is a producer command. It will kick at most `bound` jobs from buried
@@ -472,21 +343,24 @@
       (if (empty? (:buried_list @tube))
         ;; no jobs buried, kick from delay set
         (let [kicked (take bound (:delay_set @tube))
-              updated-kicked (map #(assoc % :state :ready) kicked)
+              updated-kicked (map #(assoc % :state :ready :kicks (inc (:kicks %))) kicked)
               remained (drop bound (:delay_set @tube))
               remained-set (apply sorted-set-by delay-comparator remained)]
           
           (alter tube assoc :delay_set remained-set)
-          (doseq [job updated-kicked] (set-job-as-ready job))
+          (doseq [job updated-kicked]
+            (clojalk.wal/write-job job false)
+            (set-job-as-ready job))
           updated-kicked)
         
         ;; kick at most bound jobs from buried list
         (let [kicked (take bound (:buried_list @tube))
-              updated-kicked (map #(assoc % :state :ready) kicked)
+              updated-kicked (map #(assoc % :state :ready :kicks (inc (:kicks %))) kicked)
               remained (vec (drop bound (:buried_list @tube)))]
           (alter tube assoc :buried_list remained)
-          (doseq [job updated-kicked] 
-            (set-job-as-ready (assoc job :kicks (inc (:kicks job)))))
+          (doseq [job updated-kicked]
+            (clojalk.wal/write-job job false)
+            (set-job-as-ready job))
           updated-kicked)))))
 
 ;; `touch` is another worker command to renew the deadline. It will perform
@@ -635,6 +509,7 @@
           updated-jobs (map #(assoc % :state :ready) ready-jobs)]
       (doseq [job updated-jobs]        
         (alter tube assoc :delay_set (disj (:delay_set @tube) job))
+        (clojalk.wal/write-job job false)
         (set-job-as-ready job)))))
 
 ;; Loop all tubes to perform last function.
@@ -643,16 +518,17 @@
 
 ;; Release jobs that are exceed ttr
 (defn update-expired-job-task []
-  (dosync
-    (let [reserved-jobs (filter #(= :reserved (:state %)) (vals @jobs))
-          now (current-time)
-          expired-jobs (filter #(> now (:deadline_at %)) reserved-jobs)]
-      (doseq [job expired-jobs]
-        (let [tube ((:tube job) @tubes)
-              session (:reserver job)
-              updated-job (assoc job :state :ready 
-                                 :reserver nil
-                                 :timeouts (inc (:timeouts job)))]
+  (let [reserved-jobs (filter #(= :reserved (:state %)) (vals @jobs))
+        now (current-time)
+        expired-jobs (filter #(> now (:deadline_at %)) reserved-jobs)]
+    (doseq [job expired-jobs]
+      (let [tube ((:tube job) @tubes)
+            session (:reserver job)
+            updated-job (assoc job :state :ready
+                               :reserver nil
+                               :timeouts (inc (:timeouts job)))]
+        (clojalk.wal/write-job updated-job false)
+        (dosync
           (alter session assoc :reserved_jobs (disj (:reserved_jobs @session) (:id updated-job)))
           (alter job-timeouts inc)
           (set-job-as-ready updated-job))))))

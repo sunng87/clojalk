@@ -7,7 +7,7 @@
 
 (ns clojalk.wal
   (:refer-clojure :exclude [use peek])
-  (:require clojalk.core)
+  (:require clojalk.data)
   (:use [clojalk utils])
   (:use clojure.java.io)
   (:import [java.nio ByteBuffer]))
@@ -124,10 +124,11 @@
 (defn read-file [bin-log-file handler]
   (with-open [stream (input-stream bin-log-file)]
     (loop [s stream]
-      (let [job (read-job s)]
-        (handler job))
       (if-not (zero? (.available s))
-        (recur s)))))
+        (do
+          (let [job (read-job s)]
+            (handler job))
+          (recur s))))))
 
 ;; Scan directory to find files whose name ends with .bin
 (defn scan-dir [dir-path]
@@ -158,22 +159,23 @@
 ;;
 (defn replay-handler [j]
   (if (is-full-record j)
-    (alter clojalk.core/jobs assoc (:id j) j)
+    (alter clojalk.data/jobs assoc (:id j) j)
     (if (= :invalid (:state j))
-      (alter clojalk.core/jobs dissoc (:id j))
+      (alter clojalk.data/jobs dissoc (:id j))
       (let [id (:id j)
             jr (if (= :reserved (:state j)) (assoc j :state :ready) j)]
-        (alter clojalk.core/jobs assoc id
-          (merge-with #(if (nil? %2) %1 %2) (@clojalk.core/jobs id) jr))))))
+        (alter clojalk.data/jobs assoc id
+          (merge-with #(if (nil? %2) %1 %2) (@clojalk.data/jobs id) jr))))))
 
 ;; Construct tube data structures. Load job references into certain container of
 ;; tube. Create a new tube if not found.
 ;;
 (defn- replay-tubes []
-  (doseq [jr (vals @clojalk.core/jobs)]
-    (let [tube (@clojalk.core/tubes (:tube jr))]
+  (doseq [jr (vals @clojalk.data/jobs)]
+    (let [tube (@clojalk.data/tubes (:tube jr))]
       (if (nil? tube)
-        (alter clojalk.core/tubes assoc (:tube jr) (clojalk.core/make-tube (:tube jr))))
+        (alter clojalk.data/tubes assoc (:tube jr) (clojalk.data/make-tube (:tube jr)))))
+    (let [tube (@clojalk.data/tubes (:tube jr))]
       (case (:state jr)
         :ready (alter tube assoc :ready_set (conj (:ready_set @tube) jr))
         :buried (alter tube assoc :buried_lsit (conj (:buried_lsit @tube) jr))
@@ -184,8 +186,8 @@
 ;; IMPORTANT! Append a **0** into the job key collection to prevent
 ;; exception when there is no jobs
 (defn- update-id-counter []
-  (swap! clojalk.core/id-counter
-    (constantly (long  (apply max (conj (keys @clojalk.core/jobs) 0))))))
+  (swap! clojalk.data/id-counter
+    (constantly (long  (apply max (conj (keys @clojalk.data/jobs) 0))))))
 
 ;; ## Replay logs and load jobs
 ;;
@@ -193,7 +195,7 @@
 ;; Jobs will be reloaded into memory. Job body and tube name won't be overwrite when records
 ;; with same id are found because there will be only one full record for each job, which is
 ;; also the first record for it.
-;; After all jobs are loaded into `clojalk.core/jobs`, we will update their references in
+;; After all jobs are loaded into `clojalk.data/jobs`, we will update their references in
 ;; each tube (ready_set, delay_set and bury_list). (Tubes are created if not found.)
 ;;
 ;; After all done, remove the log files.
@@ -227,24 +229,34 @@
              (range *clojalk-log-count*))]
     (dosync (ref-set log-files ss))))
 
+;; A flag for enable/disable WAL
+(def *clojalk-log-enabled* false)
+
 ;; Write the job record into certain log stream.
 ;; Here we use a `mod` function to hash job id into a log stream index.
 ;;
+;; We should test if WAL is properly initialized before we actually write
+;; logs.
+;;
 (defn write-job [j full?]
-  (let [id (:id j)
-        log-files-count (count @log-files)
-        log-file-index (mod id log-files-count)
-        log-stream (nth @log-files log-file-index)
-        job-bytes (.array (job-to-bin j full?))]
-    (.write log-stream job-bytes)))
+  (if (not-empty @log-files)
+    (let [id (:id j)
+          log-files-count (count @log-files)
+          log-file-index (mod id log-files-count)
+          log-stream (nth @log-files log-file-index)
+          job-bytes (.array (job-to-bin j full?))]
+      (.write log-stream job-bytes)
+      (.flush log-stream))))
 
 ;; Write all jobs into log streams as full record
 (defn dump-all-jobs []
-  (doseq [j (vals @clojalk.core/jobs)]
+  (doseq [j (vals @clojalk.data/jobs)]
     (write-job j true)))
 
 ;; Start proceduce of WAL module invoked before server and task start
 (defn start-wal []
-  (replay-logs)
-  (init-log-files)
-  (dump-all-jobs))
+  (if *clojalk-log-enabled*
+    (do
+      (replay-logs)
+      (init-log-files)
+      (dump-all-jobs))))

@@ -1,7 +1,6 @@
 (ns clojalk.test.core
   (:refer-clojure :exclude [use peek])
-  (:use [clojalk.core])
-  (:use [clojalk.utils])
+  (:use [clojalk core utils data])
   (:use [clojure.test]))
 
 

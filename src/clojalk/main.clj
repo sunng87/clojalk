@@ -10,9 +10,10 @@
 (defn -main [& args]
   (let [prop-file-name (or (first args) "clojalk.properties")
         props (read-properties prop-file-name)]
-    (binding [*clojalk-log-dir* (property props "wal.dir")
-              *clojalk-log-count* (property props "wal.files")]
-      (start-wal))
+    (binding [*clojalk-log-enabled* (Boolean/valueOf (property props "wal.enable"))
+              *clojalk-log-dir* (property props "wal.dir")
+              *clojalk-log-count* (as-int (property props "wal.files"))]
+      (if *clojalk-log-enabled* (start-wal)))
     (start-tasks)
     (binding [*clojalk-port* (as-int (property props "server.port"))]
       (start-server))

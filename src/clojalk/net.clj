@@ -2,7 +2,7 @@
   (:refer-clojure :exclude [use peek])
   (:require [clojure.contrib.logging :as logging])
   (:require [clojure.contrib.string :as string])
-  (:use [clojalk core utils])
+  (:use [clojalk data core utils])
   (:use [clojalk.net.protocol])
   (:use [aleph.tcp])
   (:use [lamina.core])
@@ -95,7 +95,7 @@
 
 (defn on-release [ch session args]
   (try
-    (let [id (as-int (first args))
+    (let [id (as-long (first args))
           priority (as-int (second args))
           delay (as-int (third args))
           job (exec-cmd "release" session id priority delay)]
@@ -106,7 +106,7 @@
 
 (defn on-delete [ch session args]
   (try
-    (let [id (as-int (first args))
+    (let [id (as-long (first args))
           job (exec-cmd "delete" session id)]
       (if (nil? job)
         (enqueue ch ["NOT_FOUND"])
@@ -115,7 +115,7 @@
 
 (defn on-bury [ch session args]
   (try
-    (let [id (as-int (first args))
+    (let [id (as-long (first args))
           priority (as-int (second args))
           job (exec-cmd "bury" session id priority)]
       (if (nil? job)
@@ -132,7 +132,7 @@
 
 (defn on-touch [ch session args]
   (try
-    (let [id (as-int (first args))
+    (let [id (as-long (first args))
           job (exec-cmd "touch" session id)]
       (if (nil? job)
         (enqueue ch ["NOT_FOUND"])
@@ -146,7 +146,7 @@
 
 (defn on-peek [ch session args]
   (try
-    (let [id (as-int (first args))
+    (let [id (as-long (first args))
           job (exec-cmd "peek" session id)]
       (peek-job ch job))
     (catch NumberFormatException e (enqueue ch ["BAD_FORMAT"]))))
@@ -169,7 +169,7 @@
 
 (defn on-stats-job [ch args]
   (try
-    (let [id (as-int (first args))
+    (let [id (as-long (first args))
           stats (exec-cmd "stats-job" nil id)]
       (if (nil? stats)
         (enqueue ch ["NOT_FOUND"])

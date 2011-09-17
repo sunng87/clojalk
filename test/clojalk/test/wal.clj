@@ -1,6 +1,6 @@
 (ns clojalk.test.wal
   (:refer-clojure :exclude [use peek])
-  (:use [clojalk core wal utils])
+  (:use [clojalk data wal utils])
   (:use [clojure.test])
   (:import [java.io ByteArrayInputStream]))
 
