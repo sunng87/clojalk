@@ -9,4 +9,5 @@ clojalk.iws
 clojalk.ipr
 /docs/
 /binlogs/
+*.swp
 

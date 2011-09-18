@@ -147,6 +147,7 @@
 (defn close-session [id]
   (let [session (@sessions id)]
     (dosync
+      (dequeue-waiting-session session)
       (doall (map #(set-job-as-ready (@jobs %)) (:reserved_jobs @session)))
       (alter sessions dissoc id))))
 
