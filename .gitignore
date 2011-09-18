@@ -10,4 +10,5 @@ clojalk.ipr
 /docs/
 /binlogs/
 *.swp
+*#*
 
