@@ -31,6 +31,7 @@
 (def *tube-name* "bench-tube")
 (def *puts* (atom 0))
 (def *reserves* (atom 0))
+(def *deletes* (atom 0))
 
 (defn producer []
   (println "starting producer")
@@ -48,9 +49,10 @@
     (watch conn *tube-name*)
     (loop []
       (let [id (do-reserve conn)]
-        (sleep (rand-int 100))
         (swap! *reserves* inc)
+        (sleep (rand-int 100))
         (do-delete conn id)
+        (swap! *deletes* inc)
         (recur)))))
 
 (defn monitor []
@@ -59,7 +61,7 @@
     (use conn *tube-name*)
     (loop []
       (println (:stats (stats-tube conn *tube-name*)))
-      (println (str "puts: " @*puts* " reserves: " @*reserves*))
+      (println (str "puts: " @*puts* " reserves: " @*reserves* " deletes: " @*deletes*))
       (sleep 5000)
       (recur))))
 

@@ -53,6 +53,7 @@
 ;; If not in full mode, tube-name and body will not be wrote into buffer.
 ;;
 (defn job-to-bin [job full]
+  (if (nil? (:tube job)) (println job))
   (let [tube-name-bytes (as-bytes (name (:tube job)))
         job-body-bytes (as-bytes (:body job))
         byte-length (if full 
@@ -127,7 +128,7 @@
     (loop [s stream]
       (if-not (zero? (.available s))
         (do
-          (let [job (read-job s)]
+          (if-let [job (read-job s)]
             (handler job))
           (recur s))))))
 
@@ -145,7 +146,7 @@
 
 ;; Test if a jobrec is a full record
 (defn is-full-record [j]
-  (not (nil? (:tube j))))
+  (not-nil (:tube j)))
 
 ;; Load a job record into memory
 ;;
@@ -158,7 +159,7 @@
 ;; 2. Merge all fields of the record except tube-name and job-body
 ;; (which are not stored in non-full record)
 ;;
-(defn replay-handler [j]
+(defn- replay-handler [j]
   (if (is-full-record j)
     (alter clojalk.data/jobs assoc (:id j) j)
     (if (= :invalid (:state j))
@@ -259,7 +260,7 @@
           log-file-index (mod id log-files-count)
           log-stream (nth @log-files log-file-index)
           job-bytes (.array (job-to-bin j full?))]
-      (send-off log-stream stream-write job-bytes))))
+      (send log-stream stream-write job-bytes))))
 
 ;; Write all jobs into log streams as full record
 (defn dump-all-jobs []
