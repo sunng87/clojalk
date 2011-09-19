@@ -150,9 +150,11 @@
 
 ;; Load a job record into memory
 ;;
-;; 1. Test if the job record is a full record.
-;; 2. True: Add the full record to jobs
-;; 3. False: Merge the record with new one / or just remove the record (`:invalid` state)
+;; 1. Remove the job if we found a record state `:invalid`
+;; 2. Add job into `jobs` if it's a full record
+;; 3. Change the `:reserved` jobs to `:ready` and update non-nil
+;;fields of the job
+;;
 ;;
 ;; Merge Strategy:
 ;; 1. if the job record is `:reserved`, just reset it to `:ready`
@@ -160,10 +162,10 @@
 ;; (which are not stored in non-full record)
 ;;
 (defn- replay-handler [j]
-  (if (is-full-record j)
-    (alter clojalk.data/jobs assoc (:id j) j)
-    (if (= :invalid (:state j))
-      (alter clojalk.data/jobs dissoc (:id j))
+  (if (= :invalid (:state j))
+    (alter clojalk.data/jobs dissoc (:id j))
+    (if (is-full-record j)
+      (alter clojalk.data/jobs assoc (:id j) j)
       (let [id (:id j)
             jr (if (= :reserved (:state j)) (assoc j :state :ready) j)]
         (alter clojalk.data/jobs assoc id
