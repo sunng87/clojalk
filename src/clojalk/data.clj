@@ -6,6 +6,7 @@
 ;; # Data Structures and constructors
 
 ;; Structure definition for ***Job***
+;;
 ;; **Job** is the basic task unit in clojalk. The fields are described below.
 ;;
 ;; * **id** a numerical unique id of this Job
@@ -36,6 +37,7 @@
   :reserves :timeouts :releases :buries :kicks)
 
 ;; Structure definition for Tube
+;;
 ;; Tube is a collection of jobs, similar to the database in RDBMS.
 ;;
 ;; * **name** the name of this tube, as keyword.
@@ -51,6 +53,7 @@
   :waiting_list :paused :pause_deadline :pauses)
 
 ;; Structure definition for Session (connection in beanstalkd)
+;;
 ;; Session represents all clients connected to clojalk.
 ;;
 ;; * **id** the id of this session

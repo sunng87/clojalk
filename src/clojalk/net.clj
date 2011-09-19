@@ -1,3 +1,10 @@
+;; # Network interface for clojalk
+;;
+;; Clojalk uses **aleph** as TCP server which is based on Netty.
+;; The text based protocol is almost compatible with Beanstalkd except
+;; some response message with space ended, due to the limitation of
+;; gloss protocol definition framework. (I will explain in the document.)
+;;
 (ns clojalk.net
   (:refer-clojure :exclude [use peek])
   (:require [clojure.contrib.logging :as logging])
@@ -8,7 +15,7 @@
   (:use [lamina.core])
   (:use [gloss.core]))
 
-;; this is for test and debug only
+;; this is an aleph handler for testing and debug only
 (defn echo-handler [ch client-info]
   (receive-all ch
     #(if-let [msg %]
@@ -21,17 +28,38 @@
          
            (enqueue ch ["UNKNOWN_COMMAND"]))))))
 
+;; Create a new session on the channel.
+;;
+;; Not that `clojalk.data/Session` could accept additional field as
+;; data storage. Here we attach the channel to it.
+;;
+;; Also we registered a `lamina` channel callback on the channel-close
+;; event to cleanup data bound on the session.
 (defn- create-session [ch remote-addr type]
   (open-session remote-addr type :channel ch)
   ;; also register on-closed callback on channel
   (on-closed ch #(close-session remote-addr)))
 
+;; Find a session from sessions. Create a new session with
+;; `create-session` if not found.
 (defn get-or-create-session [ch remote-addr type]
   (if-not (contains? @sessions remote-addr)
     (create-session ch remote-addr type))
   (@sessions remote-addr))
 
-;; reserve watcher
+;; Internally, the reserve operation in clojalk is non-blocking. It
+;; will return `nil` if there is no job available for reservation. And
+;; the job will be assigned to waiting session when it becomes
+;; available.
+;;
+;; We use watch on the session ref to detect if there is a new job
+;; assigned to the session and then to return the message to client.
+;;
+;; To find out the new job, just compare the `:incoming_job` field.
+;;
+;; Also, if state of the session is changed from `:waiting` to
+;; `:idle`, it means the session has been expired. We will send a
+;; `TIMEOUT` message to client.
 (defn reserve-watcher [key identity old-value new-value]
   (let [old-job (:incoming_job old-value)
         new-job (:incoming_job new-value)]
@@ -43,7 +71,24 @@
     (if (and (= :waiting old-state) (= :idle new-state))
       (enqueue (:channel new-value) ["TIMED_OUT"]))))
 
-;; server handlers
+;; ## Command handlers.
+;;
+;; All these command handlers simply follow the procedure:
+;;
+;; 1. Extract arguments from argument array
+;; 2. Type conversion (from string to numbers)
+;; 3. Run specific command with macro `exec-cmd` defined in
+;;clojalk.core
+;; 4. Return data or error message to client
+
+;; Handles input like:
+;;
+;;     put <PRIORITY> <DELAY> <TIME-TO-RUN> <BODY-SIZE>
+;;     <BODY>
+;;
+;; Arguments are parsed into numbers. If there are invalid characters
+;; in numeric fields, a `BAD_FORMAT` will be returned to client.
+;;
 (defn on-put [ch session args]
   (try
     (let [priority (as-int (first args))
@@ -56,20 +101,47 @@
         (enqueue ch ["DRAINING"])))
     (catch NumberFormatException e (enqueue ch ["BAD_FORMAT"]))))
 
+;; Handles input like:
+;;
+;;    reserve
+;;
+;; Add a watch to the session. We use session id as watcher id so next
+;; time when session receives reserve command, the watcher is
+;; overwrote.
+;;
+;; the handler will return immediately whenever there is any job could
+;; be reserved.
+;;
 (defn on-reserve [ch session]
   (add-watch session (:id session) reserve-watcher)
   (exec-cmd "reserve" session))
 
+;; Handles input like:
+;;
+;;    use <TUBE-NAME>
+;;
 (defn on-use [ch session args]
   (let [tube-name (first args)]
     (exec-cmd "use" session tube-name)
     (enqueue ch ["USING" tube-name])))
 
+;; Handles input like:
+;;
+;;     watch <TUBE-NAME>
+;;
 (defn on-watch [ch session args]
   (let [tube-name (first args)]
     (exec-cmd "watch" session tube-name)
     (enqueue ch ["WATCHING" (str (count (:watch @session)))])))
 
+;; Handles input like:
+;;
+;;     ignore <TUBE-NAME>
+;;
+;; It returns `NOT_IGNORED` if the session is ignoring
+;; the only tube is watching. And this check is performed by this
+;; handler instead of logic in `clojalk.core`
+;;
 (defn on-ignore [ch session args]
   (if (> (count (:watch @session)) 1)
     (let [tube-name (first args)]
@@ -77,6 +149,10 @@
       (enqueue ch ["WATCHING" (str (count (:watch @session)))]))
     (enqueue ch ["NOT_IGNORED"])))
 
+;; Handles input like:
+;;
+;;     quit
+;;
 (defn on-quit [ch remote-addr]
 ;  (close-session remote-addr)
   (close ch))
