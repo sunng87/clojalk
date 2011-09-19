@@ -484,9 +484,10 @@
         waiting-sessions (filter #(= :waiting (:state @%)) worker-sessions)
         producer-sessions (filter #(= :producer (:type @%)) all-sessions)
         all-tubes (vals @tubes)
-        commands-stats @commands]
+        commands-stats @commands
+        commands-stats-keys (keys commands-stats)]
 ;    (dbg commands-stats)
-    (merge (zipmap (keys commands-stats) (map deref (vals commands-stats)))
+    (merge (zipmap commands-stats-keys (map #(deref (commands-stats %)) commands-stats-keys))
            {:job-timeouts @job-timeouts
             :current-tubes (count all-tubes)
             :current-connections (count all-sessions)
@@ -499,7 +500,7 @@
             :current-jobs-reserved (count reserved-jobs)
             :current-jobs-delayed (count delayed-jobs)
             :current-jobs-buried (count buried-jobs)})))
-  
+
 ;; ## Schedule tasks for time based work
 ;;
 
