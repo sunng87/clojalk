@@ -7,7 +7,7 @@
 (defn new-mbean [state-ref]
   (proxy [Bean] [state-ref]
     (getAttribute [attr] 
-       (let [attr-value (@(.state this) (keyword attr))]
+       (let [attr-value (@(.state ^clojure.contrib.jmx.Bean this) (keyword attr))]
          (if (fn? attr-value)
            (attr-value)
            attr-value)))))

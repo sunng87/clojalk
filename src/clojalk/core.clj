@@ -581,4 +581,4 @@
 ;; Stop the scheduler
 ;;
 (defn stop-tasks [scheduler]
-  (.shutdownNow scheduler))
+  (.shutdownNow ^java.util.concurrent.ScheduledThreadPoolExecutor scheduler))

@@ -13,9 +13,11 @@
   (:import [java.nio ByteBuffer])
   (:import [java.io FileOutputStream]))
 
+(set! *warn-on-reflection* true)
+
 (def job-base-size 58)
 
-(defn- as-bytes [s]
+(defn- as-bytes [^String s]
   (.getBytes s "UTF8"))
 
 (defn state-enum [state]
@@ -58,8 +60,8 @@
         job-body-bytes (as-bytes (:body job))
         byte-length (if full 
                       (+ job-base-size 
-                         4 (alength tube-name-bytes) 
-                         4 (alength job-body-bytes)) 
+                         4 (alength ^bytes tube-name-bytes) 
+                         4 (alength ^bytes job-body-bytes)) 
                       (+ job-base-size 4 4))
         buffer (ByteBuffer/allocate byte-length)]
     (-> buffer
@@ -77,20 +79,20 @@
         (.putInt (int (:kicks job))))
     (if full
       (do
-        (.putInt buffer (alength tube-name-bytes))
-        (.put buffer tube-name-bytes)
-        (.putInt buffer (alength job-body-bytes))
-        (.put buffer job-body-bytes))
+        (.putInt buffer (alength ^bytes tube-name-bytes))
+        (.put buffer ^bytes tube-name-bytes)
+        (.putInt buffer (alength ^bytes job-body-bytes))
+        (.put buffer ^bytes job-body-bytes))
       (do
         (.putInt buffer 0)
         (.putInt buffer 0)))
     buffer))
 
 ;; read a fixed size of bytes from stream
-(defn- read-bytes [stream size]
+(defn- read-bytes [^java.io.InputStream stream size]
   (let [bytes (byte-array size)]
     (do
-      (.read stream bytes)
+      (.read stream ^bytes bytes)
       bytes)))
 
 ;; Read a job entry from stream
@@ -101,10 +103,10 @@
   (let [base-bytes (ByteBuffer/wrap (read-bytes stream job-base-size))
         tube-name-length (.getInt (ByteBuffer/wrap (read-bytes stream 4)))
         tube-name (if-not (zero? tube-name-length)
-                    (keyword (String. (read-bytes stream tube-name-length) "UTF8")))
+                    (keyword (String. ^bytes (read-bytes stream tube-name-length) "UTF8")))
         job-body-length (.getInt (ByteBuffer/wrap (read-bytes stream 4)))
         job-body (if-not (zero? job-body-length) 
-                   (String. (read-bytes stream job-body-length) "UTF8"))]
+                   (String. ^bytes (read-bytes stream job-body-length) "UTF8"))]
     (assoc
       {}
       :id (.getLong base-bytes)
@@ -134,7 +136,7 @@
 
 ;; Scan directory to find files whose name ends with .bin
 (defn scan-dir [dir-path]
-  (filter #(.endsWith (.getName %) ".bin") (.listFiles (file dir-path))))
+  (filter #(.endsWith ^String (.getName ^java.io.File %) ".bin") (.listFiles (file dir-path))))
 
 ;; Delete logging files under the dir
 (defn empty-dir [dir-path]
@@ -244,9 +246,9 @@
 (def *clojalk-log-enabled* false)
 
 ;; A convenience function to write and flush stream
-(defn- stream-write [s data]
+(defn- stream-write [^java.io.OutputStream s data]
   (do
-    (.write s data)
+    (.write s ^bytes data)
     s))
 
 ;; Write the job record into certain log stream.
@@ -261,7 +263,7 @@
           log-files-count (count @log-files)
           log-file-index (mod id log-files-count)
           log-stream (nth @log-files log-file-index)
-          job-bytes (.array (job-to-bin j full?))]
+          job-bytes (.array ^java.nio.ByteBuffer (job-to-bin j full?))]
       (send log-stream stream-write job-bytes))))
 
 ;; Write all jobs into log streams as full record

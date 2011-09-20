@@ -16,7 +16,7 @@
 (defn byte-length [s]
   (alength (.getBytes s "utf8")))
 
-(let [args (rest *command-line-args*)
+(time (let [args (rest *command-line-args*)
       tube-name (first args)
       job-count (Integer/valueOf (second args))]
   (use client tube-name)
@@ -24,4 +24,4 @@
     (if-not (= i job-count)
       (do
         (put client 500 0 1000 (byte-length job-body ) job-body)
-        (recur (inc i))))))
+        (recur (inc i)))))))
