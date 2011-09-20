@@ -4,7 +4,7 @@
   (:use [clojalk net core utils jmx wal])
   (:use [clojure.contrib.properties]))
 
-(set! *warn-on-reflection* true)
+(set! *warn-on-reflection* false)
 (defn property [^java.util.Properties properties ^String key]
   (.getProperty properties key))
 

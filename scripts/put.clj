@@ -10,6 +10,7 @@
 
 (def props (read-properties "./clojalk.properties"))
 (def client (new-beanstalk (Integer/valueOf (.getProperty props "server.port"))))
+;(def client (new-beanstalk 11300))
 
 (def job-body "<UserRequest><email>sunng@about.me</email><name>Sun Ning</name></UserRequest>")
 

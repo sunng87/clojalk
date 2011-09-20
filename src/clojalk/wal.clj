@@ -13,7 +13,7 @@
   (:import [java.nio ByteBuffer])
   (:import [java.io FileOutputStream]))
 
-(set! *warn-on-reflection* true)
+(set! *warn-on-reflection* false)
 
 (def job-base-size 58)
 
