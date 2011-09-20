@@ -247,9 +247,8 @@
 
 ;; A convenience function to write and flush stream
 (defn- stream-write [^java.io.OutputStream s data]
-  (do
-    (.write s ^bytes data)
-    s))
+  (doto s 
+    (.write ^bytes data)))
 
 ;; Write the job record into certain log stream.
 ;; Here we use a `mod` function to hash job id into a log stream index.
