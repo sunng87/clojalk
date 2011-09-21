@@ -157,18 +157,34 @@
 ;  (close-session remote-addr)
   (close ch))
 
+;; Handles input like:
+;;
+;;     list-tubes
+;;
 (defn on-list-tubes [ch]
   (let [tubes (exec-cmd "list-tubes" nil)]
     (enqueue ch ["OK" (format-coll tubes)])))
 
+;; Handles input like:
+;;
+;;     list-tube-used
+;;
 (defn on-list-tube-used [ch session]
   (let [tube (exec-cmd "list-tube-used" session)]
     (enqueue ch ["USING" (string/as-str tube)])))
 
+;; Handles input like:
+;;
+;;     list-tubes-watched
+;;
 (defn on-list-tubes-watched [ch session]
   (let [tubes (exec-cmd "list-tubes-watched" session)]
     (enqueue ch ["OK" (format-coll tubes)])))
 
+;; Handles input like:
+;;
+;;     release <ID> <PRIORITY> <DELAY>
+;;
 (defn on-release [ch session args]
   (try
     (let [id (as-long (first args))
@@ -180,6 +196,10 @@
         (enqueue ch ["RELEASED"])))
     (catch NumberFormatException e (enqueue ch ["BAD_FORMAT"]))))
 
+;; Handles input like:
+;;
+;;     delete <ID>
+;;
 (defn on-delete [ch session args]
   (try
     (let [id (as-long (first args))
@@ -189,6 +209,10 @@
         (enqueue ch ["DELETED"])))
     (catch NumberFormatException e (enqueue ch ["BAD_FORMAT"]))))
 
+;; Handles input like:
+;;
+;;     bury <ID> <PRIORITY>
+;;
 (defn on-bury [ch session args]
   (try
     (let [id (as-long (first args))
@@ -199,6 +223,10 @@
         (enqueue ch ["BURIED"])))
     (catch NumberFormatException e (enqueue ch ["BAD_FORMAT"]))))
 
+;; Handles input like:
+;;
+;;     kick <BOUND>
+;;
 (defn on-kick [ch session args]
   (try
     (let [bound (as-int (first args))
@@ -272,6 +300,8 @@
         (enqueue ch ["PAUSED"])))
     (catch NumberFormatException e (enqueue ch ["BAD_FORMAT"]))))
 
+;; Dispatching commands to centain handler.
+;;
 (defn command-dispatcher [ch client-info msg]
   (let [remote-addr (.toString ^java.net.InetSocketAddress (:remote-addr client-info))
         cmd (first msg)
@@ -307,6 +337,11 @@
       "PAUSE-TUBE" (on-pause-tube ch args)
       (enqueue ch ["UNKNOWN_COMMAND"]))))
 
+;; The default aleph handler.
+;; Load data from channel, run command-dispatcher in a try-catch to
+;; prevent server dump.
+;;
+;;
 (defn default-handler [ch client-info]
   (receive-all ch
     #(if-let [msg %]
@@ -319,7 +354,12 @@
                     (enqueue ch ["INTERNAL_ERROR"]))))
          (enqueue ch ["UNKNOWN_COMMAND"])))))
 
-(def *clojalk-port* 10000)
+;; Default port, to be override with user configuration
+(def *clojalk-port* 12026)
+
+;; Start aleph TCP server.
+;;
+;; The codec is defined in `clojalk.net.protocol`
 (defn start-server []
   (start-tcp-server default-handler {:port *clojalk-port*, :frame beanstalkd-codec}))
 
