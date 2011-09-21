@@ -225,6 +225,8 @@
 
 ;; log file streams
 (def log-files (ref []))
+;; A statistical field for total bytes written to file system
+(def log-total-size (atom (long 0)))
 
 ;; Create empty log files into `log-files`. This is invoked after legacy logs replayed.
 (defn init-log-files []
@@ -263,6 +265,7 @@
           log-file-index (mod id log-files-count)
           log-stream (nth @log-files log-file-index)
           job-bytes (.array ^java.nio.ByteBuffer (job-to-bin j full?))]
+      (swap! log-total-size + (alength ^bytes job-bytes))
       (send log-stream stream-write job-bytes))))
 
 ;; Write all jobs into log streams as full record

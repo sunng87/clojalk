@@ -1,6 +1,6 @@
 (ns clojalk.jmx
   (:refer-clojure :exclude [use peek])
-  (:use [clojalk data utils])
+  (:use [clojalk data utils wal])
   (:require [clojure.contrib.jmx :as jmx])
   (:import [clojure.contrib.jmx Bean]))
 
@@ -35,8 +35,15 @@
     (ref
       {:tubes (fn [] (into-string-array (map #(name (:name @%)) (vals @tubes))))
        })))
+
+(def jmx-wal-bean
+  (new-mbean
+    (ref
+      {:total-files #(count @log-files)
+       :total-file-size (fn [] @log-total-size)})))
   
 (defn start-jmx-server []
   (jmx/register-mbean jmx-session-bean "clojalk.management:type=Sessions")
   (jmx/register-mbean jmx-job-bean "clojalk.management:type=Jobs")
-  (jmx/register-mbean jmx-tube-bean "clojalk.management:type=Tubes"))
+  (jmx/register-mbean jmx-tube-bean "clojalk.management:type=Tubes")
+  (jmx/register-mbean jmx-wal-bean "clojalk.management:type=Wal"))

@@ -15,7 +15,7 @@
 (def job-body "<UserRequest><email>sunng@about.me</email><name>Sun Ning</name></UserRequest>")
 
 (defn byte-length [s]
-  (alength (.getBytes s "utf8")))
+  (alength ^bytes (.getBytes ^String s "utf8")))
 
 (time (let [args (rest *command-line-args*)
       tube-name (first args)
