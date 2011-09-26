@@ -33,7 +33,7 @@
 (def jmx-tube-bean
   (new-mbean
     (ref
-      {:tubes (fn [] (into-string-array (map #(name (:name @%)) (vals @tubes))))
+      {:tubes (fn [] (into-string-array (map #(name (:name %)) (vals @tubes))))
        })))
 
 (def jmx-wal-bean

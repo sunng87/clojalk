@@ -89,14 +89,14 @@
 
 ;; Function to create an empty tube.
 (defn make-tube [name]
-  (ref (struct Tube (keyword name) ; name
-          (sorted-set-by priority-comparator) ; ready_set
-          (sorted-set-by delay-comparator) ; delay_set
-          [] ; buried_list
-          [] ; waiting queue
-          false ; paused state
-          -1 ; pause timeout
-          0))) ; pause command counter
+  (struct Tube (keyword name) ; name
+          (ref (sorted-set-by priority-comparator)) ; ready_set
+          (ref (sorted-set-by delay-comparator)) ; delay_set
+          (ref []) ; buried_list
+          (ref []) ; waiting queue
+          (ref false) ; paused state
+          (ref -1) ; pause timeout
+          (ref 0))) ; pause command counter
 
 ;; Default job id generator. We use an atomic integer to store id.
 (defonce id-counter (atom (long 0)))

@@ -183,9 +183,9 @@
         (alter clojalk.data/tubes assoc (:tube jr) (clojalk.data/make-tube (:tube jr)))))
     (let [tube (@clojalk.data/tubes (:tube jr))]
       (case (:state jr)
-        :ready (alter tube assoc :ready_set (conj (:ready_set @tube) jr))
-        :buried (alter tube assoc :buried_lsit (conj (:buried_lsit @tube) jr))
-        :delayed (alter tube assoc :delay_set (conj (:delay_set @tube) jr))))))
+        :ready (alter (:ready_set tube) conj jr)
+        :buried (alter (:buried_list tube) conj jr)
+        :delayed (alter (:delay_set tube) conj jr)))))
 
 ;; Update id counter after all job records are loaded from logs
 ;;
