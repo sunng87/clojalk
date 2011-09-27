@@ -15,7 +15,6 @@
               *clojalk-log-dir* (property props "wal.dir")
               *clojalk-log-count* (as-int (property props "wal.files"))]
       (if *clojalk-log-enabled* (start-wal)))
-    (start-tasks)
     (binding [*clojalk-port* (as-int (property props "server.port"))]
       (start-server))
     (start-jmx-server)

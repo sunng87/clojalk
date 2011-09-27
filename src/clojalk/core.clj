@@ -20,7 +20,8 @@
 (ns clojalk.core
   (:refer-clojure :exclude [use peek])
   (:use [clojalk data utils])
-  (:require [clojalk.wal]))
+  (:require [clojalk.wal])
+  (:import [java.util.concurrent Executors TimeUnit]))
 
 
 
@@ -100,6 +101,7 @@
       (alter session assoc :reserved_jobs 
              (conj (:reserved_jobs @session) (:id updated-top-job)))
       (clojalk.wal/write-job updated-top-job false)
+      (schedule #(update-expired-job (:id updated-top-job)) (:ttr job))
       updated-top-job)))
 
 ;; Mark the job as ready. This is referenced when
@@ -497,83 +499,51 @@
             :current-jobs-delayed (count delayed-jobs)
             :current-jobs-buried (count buried-jobs)})))
 
-;; ## Schedule tasks for time based work
+;; ## Schedule tasks for time based task
 ;;
 
-;; Set delay jobs as ready when they are timeout.
-(defn- update-delay-job-for-tube [now tube]
+;; Update a delayed job and set it as ready.
+;;
+(defn- update-delayed-job [job]
   (dosync
-    (let [ready-jobs (filter #(< (:deadline_at %) now) @(:delay_set tube))
-          updated-jobs (map #(assoc % :state :ready) ready-jobs)]
-      (doseq [job updated-jobs]        
-        (alter (:delay_set tube) disj job)
-        (clojalk.wal/write-job job false)
-        (set-job-as-ready job)))))
+    (alter (:delay_set tube) disj job)
+    (clojalk.wal/write-job job false)
+    (set-job-as-ready job)))
 
-;; Loop all tubes to perform last function.
-(defn update-delay-job-task []
-  (doseq [tube (vals @tubes)] (update-delay-job-for-tube (current-time) tube)))
+;; Release an expired job set it as ready
+;;
+(defn- update-expired-job [job]
+  (let [session (:reserver job)
+        updated-job (assoc job :state :ready
+                           :reserver nil
+                           :timeouts (inc (:timeouts job)))]
+    (clojalk.wal/write-job updated-job false)
+    (dosync
+      (alter session assoc :reserved_jobs (disj (:reserved_jobs @session) (:id updated-job)))
+      (alter job-timeouts inc)
+      (set-job-as-ready updated-job))))
 
-;; Release jobs that are exceed ttr
-(defn update-expired-job-task []
-  (let [reserved-jobs (filter #(= :reserved (:state %)) (vals @jobs))
-        now (current-time)
-        expired-jobs (filter #(> now (:deadline_at %)) reserved-jobs)]
-    (doseq [job expired-jobs]
-      (let [session (:reserver job)
-            updated-job (assoc job :state :ready
-                               :reserver nil
-                               :timeouts (inc (:timeouts job)))]
-        (clojalk.wal/write-job updated-job false)
-        (dosync
-          (alter session assoc :reserved_jobs (disj (:reserved_jobs @session) (:id updated-job)))
-          (alter job-timeouts inc)
-          (set-job-as-ready updated-job))))))
-
-;; Enable paused tubes when they are timeout
-(defn update-paused-tube-task []
-  (let [all-tubes (vals @tubes)
-        paused-tubes (filter #(true? @(:paused %)) all-tubes)
-        now (current-time)
-        expired-tubes (filter #(> now @(:pause_deadline %)) paused-tubes)]
-    (doseq [t expired-tubes]
-      (dosync 
-        (ref-set (:paused t) false)
+;; Enable a paused tube
+;;
+(defn- update-paused-tube [tube]
+  (dosync 
+    (ref-set (:paused t) false)
         
-        ;; handle waiting session
-        (let [pending-pairs (zipmap @(:waiting_list t) @(:ready_set t))]
-          (doseq [s (keys pending-pairs)]
-            (reserve-job s (pending-pairs s))))))))
+    ;; handle waiting session
+    (let [pending-pairs (zipmap @(:waiting_list t) @(:ready_set t))]
+      (doseq [s (keys pending-pairs)]
+        (reserve-job s (pending-pairs s))))))
 
-;; Update waiting workers when they are expired
+;; Reject a session that waiting for reservation
 ;;
-;; we don't update deadline_at on this task,
-;; it will be updated next time when it's reserved
-(defn update-expired-waiting-session-task []
+(defn- update-expired-waiting-session [session]
   (dosync
-    (doseq
-      [session (vals @sessions)]
-      (if (= :waiting (:state @session))
-        (let [now (current-time)
-              deadline (:deadline_at @session)
-              expired (and (not-nil deadline) (> now deadline))]
-          (if (true? expired)
-            (do
-              (dequeue-waiting-session session)
-              (alter session assoc :state :idle))))))))
+    (dequeue-waiting-session session)
+    (alter session assoc :state :idle)))
 
-;; Start all tasks mentioned above with 5 threads.
-;; Tasks are executed in fixed delay.
-;;
-;; A scheduler will be returned.
-(defn start-tasks []
-  (schedule-task 5 
-                 [update-delay-job-task 0 1] 
-                 [update-expired-job-task 0 1] 
-                 [update-paused-tube-task 0 1]
-                 [update-expired-waiting-session-task 0 1]))
+(defonce schduler
+  (Executors/newScheduledThreadPool  (* 2 (.availableProcessors (Runtime/getRuntime)))))
 
-;; Stop the scheduler
-;;
-(defn stop-tasks [scheduler]
-  (.shutdownNow ^java.util.concurrent.ScheduledThreadPoolExecutor scheduler))
+(defn shedule [task delay]
+  (.schedule scheduler task delay TimeUnit/SECONDS))
+
