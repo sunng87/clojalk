@@ -50,6 +50,8 @@
 (defn- enqueue-waiting-session [session timeout]
   (let [watch-tubes (filter #(contains? (:watch @session) (:name %)) (vals @tubes))
         deadline_at (if (nil? timeout) nil (+ (current-time) (* timeout 1000)))]
+    (if (not-nil timeout)
+      (schedule #(update-expired-waiting-session session) timeout))
     (doseq [tube watch-tubes]
       (alter (:waiting_list tube) conj session))
     (alter session assoc
@@ -186,7 +188,8 @@
           (case (:state job)
             :delayed (do 
                        (alter (:delay_set tube) conj job)
-                       (alter jobs assoc (:id job) job))
+                       (alter jobs assoc (:id job) job)
+                       (schedule #(update-delayed-job (:id job) (:delay job))))
             :ready (set-job-as-ready job)))
         job))))
 
@@ -298,7 +301,9 @@
         (do
           (dosync
             (if (> delay 0)              
-              (alter (:delay_set tube) conj (assoc updated-job :state :delayed))
+              (do
+                (alter (:delay_set tube) conj (assoc updated-job :state :delayed))
+                (schedule #(update-delayed-job (:id updated-job) delay)))
               (set-job-as-ready (assoc updated-job :state :ready)))
             (alter session assoc :incoming_job nil)
             (alter session assoc :reserved_jobs 
@@ -372,6 +377,7 @@
              (= (:id @(:reserver job)) (:id @session)))
       (let [deadline (+ (current-time) (* (:ttr job) 1000))
             updated-job (assoc job :deadline_at deadline)]
+        (schedule #(update-expired-job (:id job)) (:ttr job))
         (dosync
           (if (= :reserved (:state updated-job)) ;; only reserved jobs could be touched
             (do
@@ -414,10 +420,13 @@
 ;; Also update a statistical field.
 (defcommand "pause-tube" [session id timeout]
   (if-let [tube ((keyword id) @tubes)]
-    (dosync
-      (ref-set (:paused tube) true)
-      (ref-set (:pause_deadline tube) (+ (* timeout 1000) (current-time)))
-      (alter (:pauses tube) inc))))
+    (do
+      (schedule #(update-paused-tube tube) timeout)
+      (dosync
+        (ref-set (:paused tube) true)
+        (ref-set (:pause_deadline tube) (+ (* timeout 1000) (current-time)))
+        (alter (:pauses tube) inc)))))
+
 
 ;; stats command. Display some information of a job.
 (defcommand "stats-job" [session id]
@@ -504,24 +513,37 @@
 
 ;; Update a delayed job and set it as ready.
 ;;
-(defn- update-delayed-job [job]
-  (dosync
-    (alter (:delay_set tube) disj job)
-    (clojalk.wal/write-job job false)
-    (set-job-as-ready job)))
+(defn- update-delayed-job [job-id]
+  (if-let [job (job-id @jobs)]
+    (when (= :delayed (:state job))
+      (dosync
+        (alter (:delay_set tube) disj job)
+        (clojalk.wal/write-job job false)
+        (set-job-as-ready job)))))
 
 ;; Release an expired job set it as ready
 ;;
-(defn- update-expired-job [job]
-  (let [session (:reserver job)
-        updated-job (assoc job :state :ready
-                           :reserver nil
-                           :timeouts (inc (:timeouts job)))]
-    (clojalk.wal/write-job updated-job false)
-    (dosync
-      (alter session assoc :reserved_jobs (disj (:reserved_jobs @session) (:id updated-job)))
-      (alter job-timeouts inc)
-      (set-job-as-ready updated-job))))
+;; Since we won't cancel the task so we should check if the
+;; task is still valid before we actually run it.
+;;
+;; For this scenario, we should ensure:
+;;
+;; * the job has exceed its deadline. To prevent the deadline is
+;;override by another operation.
+;; * the state of job is still `:reserved`
+;;
+(defn- update-expired-job [job-id]
+  (if-let [job (job-id @jobs)]
+    (when (and (>= (current-time) (:deadline_at job)) (= :reserved (:state job)))
+      (let [session (:reserver job)
+            updated-job (assoc job :state :ready
+                               :reserver nil
+                               :timeouts (inc (:timeouts job)))]
+        (clojalk.wal/write-job updated-job false)
+        (dosync
+          (alter session assoc :reserved_jobs (disj (:reserved_jobs @session) (:id updated-job)))
+          (alter job-timeouts inc)
+          (set-job-as-ready updated-job))))))
 
 ;; Enable a paused tube
 ;;
@@ -537,9 +559,10 @@
 ;; Reject a session that waiting for reservation
 ;;
 (defn- update-expired-waiting-session [session]
-  (dosync
-    (dequeue-waiting-session session)
-    (alter session assoc :state :idle)))
+  (if (= :waiting (:state @session))
+    (dosync
+      (dequeue-waiting-session session)
+      (alter session assoc :state :idle))))
 
 (defonce schduler
   (Executors/newScheduledThreadPool  (* 2 (.availableProcessors (Runtime/getRuntime)))))
