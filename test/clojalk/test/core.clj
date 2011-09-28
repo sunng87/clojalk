@@ -208,6 +208,8 @@
     (reserve session-w)
     (reserve session-w)
     (reserve session-w)
+
+    (sleep 1)
     
     (is (= 1 (count @(:ready_set (:expire-task-test @tubes)))))
     

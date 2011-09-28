@@ -73,10 +73,9 @@
 (defn- wrap-task [task]
   (try task (catch Exception e (logging/warn "Exception caught on scheduled task" e))))
 
-(defn schedule-task [thread-pool-size & taskdefs]
-  (let [scheduler (. Executors newScheduledThreadPool thread-pool-size)]
-    (doseq [[task delay interval] taskdefs]
-      (.scheduleWithFixedDelay scheduler (wrap-task task) delay interval (. TimeUnit SECONDS)))
-    scheduler))
+(defonce compute-intensive-scheduler
+  (Executors/newScheduledThreadPool  (* 2 (.availableProcessors (Runtime/getRuntime)))))
 
-
+(defn schedule [task delay]
+  (.schedule compute-intensive-scheduler
+             ^Runnable task ^long (long delay) ^TimeUnit TimeUnit/SECONDS))
