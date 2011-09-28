@@ -103,9 +103,6 @@
     ;; sleep 
     (sleep 3)
     
-    ;; update tasks
-    (update-delay-job-task)
-    
     (is (= 1 (count @(:delay_set (:delay-task-test @tubes)))))
     (is (= 3 (count @(:ready_set (:delay-task-test @tubes)))))))
 
@@ -214,10 +211,6 @@
     
     (is (= 1 (count @(:ready_set (:expire-task-test @tubes)))))
     
-    ;;wait for expire
-    (sleep 1.5)
-    (update-expired-job-task)
-    
     (is (= 3 (count @(:ready_set (:expire-task-test @tubes)))))
     (is (= 1 (count (:reserved_jobs @session-w))))))
 
@@ -231,9 +224,6 @@
     ;; working should be waiting for tube to continue
     (reserve session-w)
     (is (= :waiting (:state @session-w)))
-    
-    (sleep 0.8)
-    (update-paused-tube-task)
     
     ;; job could be automatically assign to pending worker
     (is (= :working (:state @session-w)))
@@ -289,8 +279,6 @@
     (reserve-with-timeout session-w 0.5)
     (is (= 1 (count @(:waiting_list (:test-reserve-timeout @tubes)))))
     
-    (sleep 0.7)
-    (update-expired-waiting-session-task)
     (is (empty? @(:waiting_list (:test-reserve-timeout @tubes))))
     (is (= :idle (:state @session-w)))))
 
