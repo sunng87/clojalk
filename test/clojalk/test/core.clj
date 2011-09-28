@@ -209,10 +209,8 @@
     (reserve session-w)
     (reserve session-w)
 
-    (sleep 1)
-    
     (is (= 1 (count @(:ready_set (:expire-task-test @tubes)))))
-    
+    (sleep 1.1)
     (is (= 3 (count @(:ready_set (:expire-task-test @tubes)))))
     (is (= 1 (count (:reserved_jobs @session-w))))))
 

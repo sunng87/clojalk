@@ -539,7 +539,7 @@
 ;; * the state of job is still `:reserved`
 ;;
 (defn- update-expired-job [job-id]
-  (if-let [job (job-id @jobs)]
+  (if-let [job (dbg (job-id @jobs))]
     (when (and (>= (current-time) (:deadline_at job)) (= :reserved (:state job)))
       (let [session (:reserver job)
             updated-job (assoc job :state :ready
