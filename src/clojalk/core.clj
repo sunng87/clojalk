@@ -157,7 +157,7 @@
   (let [session (@sessions id)]
     (dosync
       (dequeue-waiting-session session)
-      (doall (map #(set-job-as-ready (@jobs %)) (:reserved_jobs @session)))
+      (dorun (map #(set-job-as-ready (@jobs %)) (:reserved_jobs @session)))
       (alter sessions dissoc id))))
 
 ;; ## Macros for convenience of creating and executing commands
