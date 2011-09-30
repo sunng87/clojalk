@@ -424,13 +424,13 @@
 ;; not be reserved until pause timeout.
 ;; Also update a statistical field.
 (defcommand "pause-tube" [session id timeout]
-  (if-let [tube ((keyword id) @tubes)]
+  (if-let [tube (@tubes (keyword id))]
     (do
-      (schedule #(update-paused-tube tube) timeout)
       (dosync
         (ref-set (:paused tube) true)
         (ref-set (:pause_deadline tube) (+ (* timeout 1000) (current-time)))
-        (alter (:pauses tube) inc)))))
+        (alter (:pauses tube) inc))
+      (schedule #(update-paused-tube (:name tube)) timeout))))
 
 
 ;; stats command. Display some information of a job.
@@ -520,7 +520,7 @@
 ;; Update a delayed job and set it as ready.
 ;;
 (defn- update-delayed-job [job-id]
-  (if-let [job (job-id @jobs)]
+  (if-let [job (@jobs job-id)]
     (when (= :delayed (:state job))
       (dosync
         (alter (:delay_set ((:tube job) @tubes)) disj job)
@@ -539,7 +539,7 @@
 ;; * the state of job is still `:reserved`
 ;;
 (defn- update-expired-job [job-id]
-  (if-let [job (dbg (job-id @jobs))]
+  (if-let [job (@jobs job-id)]
     (when (and (>= (current-time) (:deadline_at job)) (= :reserved (:state job)))
       (let [session (:reserver job)
             updated-job (assoc job :state :ready
@@ -553,14 +553,16 @@
 
 ;; Enable a paused tube
 ;;
-(defn- update-paused-tube [tube]
-  (dosync 
-    (ref-set (:paused tube) false)
-        
-    ;; handle waiting session
-    (let [pending-pairs (zipmap @(:waiting_list tube) @(:ready_set tube))]
-      (doseq [s (keys pending-pairs)]
-        (reserve-job s (pending-pairs s))))))
+(defn- update-paused-tube [tube-name]
+  (if-let [tube (@tubes tube-name)]
+    (do
+      (dosync 
+        (ref-set (:paused tube) false))
+      (dosync
+        ;; handle waiting session
+        (let [pending-pairs (zipmap @(:waiting_list tube) @(:ready_set tube))]
+          (doseq [s (keys pending-pairs)]
+            (reserve-job s (pending-pairs s))))))))
 
 ;; Reject a session that waiting for reservation
 ;;

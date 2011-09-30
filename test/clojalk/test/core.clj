@@ -218,13 +218,14 @@
   (let [session-p (use (open-session :producer) "expire-tube-test")
         session-w (watch (open-session :worker) "expire-tube-test")]
     (put session-p 100 0 500 "nice")
-    (pause-tube session-p "expire-tube-test" 0.5)
+    (pause-tube session-p "expire-tube-test" 1)
     (is (true? @(:paused (:expire-tube-test @tubes))))
     
     ;; working should be waiting for tube to continue
     (reserve session-w)
     (is (= :waiting (:state @session-w)))
-    
+
+    (sleep 1.2)
     ;; job could be automatically assign to pending worker
     (is (= :working (:state @session-w)))
     (is (false? @(:paused (:expire-tube-test @tubes))))))
@@ -276,9 +277,10 @@
 (deftest test-reserve-timeout
   (let [session-w (watch (open-session :worker) "test-reserve-timeout")]
     ;;reserve an empty tube with timeout
-    (reserve-with-timeout session-w 0.5)
+    (reserve-with-timeout session-w 1)
     (is (= 1 (count @(:waiting_list (:test-reserve-timeout @tubes)))))
-    
+
+    (sleep 1.2)
     (is (empty? @(:waiting_list (:test-reserve-timeout @tubes))))
     (is (= :idle (:state @session-w)))))
 
