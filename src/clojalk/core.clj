@@ -105,8 +105,7 @@
       (alter jobs assoc (:id job) updated-top-job)
       (dequeue-waiting-session session)
       (alter session assoc :incoming_job updated-top-job)
-      (alter session assoc :reserved_jobs 
-             (conj (:reserved_jobs @session) (:id updated-top-job)))
+      (alter session update-in [:reserved_jobs] conj (:id updated-top-job))
       (clojalk.wal/write-job updated-top-job false)
       (schedule #(update-expired-job (:id updated-top-job)) (:ttr job))
       updated-top-job)))
@@ -128,6 +127,7 @@
   (let [tube ((:tube job) @tubes)]
     (do
       (alter jobs assoc (:id job) (assoc job :state :ready))
+;      (alter jobs update-in [(:id job)] assoc :state :ready)
       (alter (:ready_set tube) conj job)
       (if-let [s (first @(:waiting_list tube))]
         (reserve-job s job)))))
@@ -279,8 +279,7 @@
             (if (= (:state job) :ready)
               (alter (:ready_set tube) disj job))
             (alter session assoc :incoming_job nil)
-            (alter session assoc :reserved_jobs 
-                   (disj (:reserved_jobs @session) (:id job)))
+            (alter session update-in [:reserved_jobs] disj (:id job))
             (if (empty? (:reserved_jobs @session))
               (alter session assoc :state :idle)))
           (clojalk.wal/write-job (assoc job :state :invalid) false)
@@ -311,8 +310,7 @@
                 (schedule #(update-delayed-job (:id updated-job)) delay))
               (set-job-as-ready (assoc updated-job :state :ready)))
             (alter session assoc :incoming_job nil)
-            (alter session assoc :reserved_jobs 
-                   (disj (:reserved_jobs @session) (:id updated-job)))
+            (alter session update-in [:reserved_jobs] disj (:id job))
             (if (empty? (:reserved_jobs @session))
               (alter session assoc :state :idle)))
           (clojalk.wal/write-job updated-job false)
@@ -335,8 +333,7 @@
             (alter (:buried_list tube) conj updated-job)
             (alter jobs assoc (:id updated-job) updated-job)
             (alter session assoc :incoming_job nil)
-            (alter session assoc :reserved_jobs 
-                   (disj (:reserved_jobs @session) (:id updated-job)))
+            (alter session update-in [:reserved_jobs] disj (:id job))
             (if (empty? (:reserved_jobs @session))
               (alter session assoc :state :idle)))
           (clojalk.wal/write-job updated-job false)
@@ -396,7 +393,7 @@
     (dosync
       (if-not (contains? @tubes tube-name-kw)
         (alter tubes assoc tube-name-kw (make-tube tube-name)))
-        (alter session assoc :watch (conj (:watch @session) tube-name-kw))
+        (alter session update-in [:watch] conj tube-name-kw)
       session)))
 
 ;; `ignore` is a worker command to remove tube from watching list.
@@ -405,7 +402,7 @@
   (let [tube-name-kw (keyword tube-name)]
     (dosync
       (if (> (count (:watch @session)) 1)
-        (alter session assoc :watch (disj (:watch @session) tube-name-kw))))
+        (alter session update-in [:watch] disj tube-name-kw)))
     session))
 
 ;; stats command. list tubes names.
@@ -547,7 +544,7 @@
                                :timeouts (inc (:timeouts job)))]
         (clojalk.wal/write-job updated-job false)
         (dosync
-          (alter session assoc :reserved_jobs (disj (:reserved_jobs @session) (:id updated-job)))
+          (alter session update-in [:reserved_jobs] disj (:id updated-job))
           (alter job-timeouts inc)
           (set-job-as-ready updated-job))))))
 
