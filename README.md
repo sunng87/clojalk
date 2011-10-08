@@ -6,9 +6,10 @@ A distributed task queue written pure in clojure. A Beanstalkd clone.
 
 ### Installation ###
 
-Clojalk is still in development so we don't have a stable release
-package. To use clojalk, you should checkout the code base and build
-it by yourself. Be sure you have leiningen installed.
+Clojalk is still in development so we don't have a packaged release. 
+To use clojalk, you should checkout the code base and build
+it by yourself. This is not difficult task but be sure you have
+leiningen installed.
 
     git clone git@github.com:sunng87/clojalk.git
     cd clojalk
@@ -26,6 +27,12 @@ Also you can start clojalk from code base with lein. This is only for
 test purpose:
 
     lein run
+
+Try out your installation:
+
+    telnet 127.0.0.1 12026
+
+You should be familiar with beanstalkd's memcached-styled protocol.
  
 ### Protocol ###
 
@@ -73,9 +80,20 @@ The clojure client [beanstalk](https://github.com/sunng87/beanstalk
 "beanstalk") is forked and maintained by me, which works with clojalk
 and beanstalkd.
 
+More clients to be tested against clojalk.
+
+## Thanks ##
+
+I should thanks [Keith Rarick](https://github.com/kr "Keith Rarick")
+who designed beanstalkd and its protocol.
+
+And also I received great help from [Zach
+Tellman](https://github.com/ztellman "Zach Tellman") on implementing
+the protocol with gloss.
+
 ## License ###
 
-Copyright (C) 2011 Sun Ning
+Copyright (C) 2011 [Sun Ning](http://sunng.info/ "Sun Ning")
 
 Distributed under the Eclipse Public License, the same as Clojure uses. 
 
