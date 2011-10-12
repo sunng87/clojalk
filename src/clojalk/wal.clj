@@ -213,7 +213,7 @@
   (if-let [bin-log-files (scan-dir *clojalk-log-dir*)]
     (do
       (dosync
-        (doall (map #(read-file % replay-handler) bin-log-files))
+        (dorun (map #(read-file % replay-handler) bin-log-files))
         (replay-tubes))
       (println (str (count @clojalk.data/jobs) " jobs loaded from write-ahead logs."))
       (update-id-counter)))
