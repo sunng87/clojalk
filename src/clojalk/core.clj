@@ -126,8 +126,7 @@
 (defn- set-job-as-ready [job]
   (let [tube ((:tube job) @tubes)]
     (do
-      (alter jobs assoc (:id job) (assoc job :state :ready))
-;      (alter jobs update-in [(:id job)] assoc :state :ready)
+      (alter jobs update-in [(:id job)] (fnil assoc job) :state :ready)
       (alter (:ready_set tube) conj job)
       (if-let [s (first @(:waiting_list tube))]
         (reserve-job s job)))))
