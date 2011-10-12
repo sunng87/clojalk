@@ -91,6 +91,10 @@ And also I received great help from [Zach
 Tellman](https://github.com/ztellman "Zach Tellman") on implementing
 the protocol with gloss.
 
+### Contributors ###
+
+* [xiaonaitong](https://github.com/xiaonaitong "xiaonaitong")
+
 ## License ###
 
 Copyright (C) 2011 [Sun Ning](http://sunng.info/ "Sun Ning")
