@@ -126,8 +126,7 @@
 (defn- set-job-as-ready [job]
   (let [tube ((:tube job) @tubes)]
     (do
-      (alter jobs assoc (:id job) (assoc job :state :ready))
-;      (alter jobs update-in [(:id job)] assoc :state :ready)
+      (alter jobs update-in [(:id job)] (fnil assoc job) :state :ready)
       (alter (:ready_set tube) conj job)
       (if-let [s (first @(:waiting_list tube))]
         (reserve-job s job)))))
@@ -157,7 +156,7 @@
   (let [session (@sessions id)]
     (dosync
       (dequeue-waiting-session session)
-      (doall (map #(set-job-as-ready (@jobs %)) (:reserved_jobs @session)))
+      (dorun (map #(set-job-as-ready (@jobs %)) (:reserved_jobs @session)))
       (alter sessions dissoc id))))
 
 ;; ## Macros for convenience of creating and executing commands
@@ -181,7 +180,7 @@
 
 ;; `put` is a producer task. It will create a new job according to information passed in.
 ;; When server is in drain mode, it does not store the job and return nil.
-;; If dealy is not zero, the job will be created as a delayed job. Delayed
+;; If delay is not zero, the job will be created as a delayed job. Delayed
 ;; job could not be reserved until it's timeout and ready.
 (defcommand "put" [session priority delay ttr body]
   (if-not @drain
