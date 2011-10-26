@@ -70,8 +70,8 @@
     (.setDaemon t false)
     (.start t)))
 
-(doall (map run-in-thread (take 5 (repeat producer))))
-(doall (map run-in-thread (take 10 (repeat worker))))
+(dorun (map run-in-thread (take 5 (repeat producer))))
+(dorun (map run-in-thread (take 10 (repeat worker))))
 (run-in-thread monitor)
 (println "benchmark started")
 

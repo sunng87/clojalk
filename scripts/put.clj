@@ -41,6 +41,6 @@
 
 (time
   (do
-    (doall (map run-in-thread (take total-clients (repeat do-put-jobs))))
+    (dorun (map run-in-thread (take total-clients (repeat do-put-jobs))))
     (.await latch)))
 
