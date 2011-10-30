@@ -495,7 +495,7 @@
         commands-stats @commands
         commands-stats-keys (keys commands-stats)]
 ;    (dbg commands-stats)
-    (merge (zipmap commands-stats-keys (map #(deref (commands-stats %)) commands-stats-keys))
+    (merge (zipmap commands-stats-keys (doall (map #(deref (commands-stats %)) commands-stats-keys)))
            {:job-timeouts @job-timeouts
             :current-tubes (count @tubes)
             :current-connections (count all-sessions)
