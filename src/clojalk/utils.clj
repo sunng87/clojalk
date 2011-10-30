@@ -73,9 +73,16 @@
 (defn- wrap-task [task]
   (try task (catch Exception e (logging/warn "Exception caught on scheduled task" e))))
 
+;; define scheduler as an agent so we can use it within an stm
 (defonce compute-intensive-scheduler
-  (Executors/newScheduledThreadPool  (* 2 (.availableProcessors (Runtime/getRuntime)))))
+  (agent (Executors/newScheduledThreadPool  (* 2 (.availableProcessors (Runtime/getRuntime))))))
 
+;; schedule a delayed task to thread pool and return thread pool itself
+(defn- do-schedule [threads task delay]
+  (.schedule threads ^Runnable task ^long (long delay) ^TimeUnit TimeUnit/SECONDS)
+  threads)
+
+;; schedule a delayed task, can be used within an stm
 (defn schedule [task delay]
-  (.schedule compute-intensive-scheduler
-             ^Runnable task ^long (long delay) ^TimeUnit TimeUnit/SECONDS))
+  (send compute-intensive-scheduler do-schedule task delay))
+
