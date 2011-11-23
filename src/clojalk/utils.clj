@@ -2,7 +2,7 @@
   (:require [clojure.contrib.logging :as logging])
   (:require [clojure.contrib.string :as string])
   (:import [java.util UUID])
-  (:import [java.util.concurrent Executors TimeUnit]))
+  (:import [java.util.concurrent Executors TimeUnit ExecutorService]))
 
 (defn current-time []
   (System/currentTimeMillis))
@@ -79,7 +79,7 @@
 
 ;; schedule a delayed task to thread pool and return thread pool itself
 (defn- do-schedule [threads task delay]
-  (.schedule threads ^Runnable task ^long (long delay) ^TimeUnit TimeUnit/SECONDS)
+  (.schedule ^ExecutorService threads ^Runnable task ^long (long delay) ^TimeUnit TimeUnit/SECONDS)
   threads)
 
 ;; schedule a delayed task, can be used within an stm

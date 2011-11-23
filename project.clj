@@ -6,4 +6,5 @@
   :dev-dependencies [[org.clojars.sunng/beanstalk "1.0.5"]
                      [lein-exec "0.1"]
                      [lein-marginalia "0.6.0"]]
+  :warn-on-reflection true
   :main clojalk.main)
