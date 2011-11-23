@@ -491,11 +491,9 @@
         all-sessions (vals @sessions)
         worker-sessions (filter #(= :worker (:type @%)) all-sessions)
         waiting-sessions (filter #(= :waiting (:state @%)) worker-sessions)
-        producer-sessions (filter #(= :producer (:type @%)) all-sessions)
-        commands-stats @commands
-        commands-stats-keys (keys commands-stats)]
+        producer-sessions (filter #(= :producer (:type @%)) all-sessions)]
 ;    (dbg commands-stats)
-    (merge (zipmap commands-stats-keys (doall (map #(deref (commands-stats %)) commands-stats-keys)))
+    (merge (into {} (for [i @commands] [(key i) @(val i)]))
            {:job-timeouts @job-timeouts
             :current-tubes (count @tubes)
             :current-connections (count all-sessions)
