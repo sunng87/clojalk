@@ -1,7 +1,7 @@
 ;; # The core part of clojalk
 ;;
 ;; This is the core logic and components of clojalk. It is designed to be used
-;; as a embed library or standalone server. So the APIs here are straight forward
+;; as <del>a embed library or</del> standalone server. So the APIs here are straight forward
 ;; enough as the server exposed.
 ;;
 ;; There are several models in clojalk.
@@ -231,8 +231,8 @@
       (reserve-job session top-job))))
 
 ;; `reserve` is a worker task. It will wait for available jobs without timeout.
-;; BE CAUTION: this is only for server mode. If you use clojalk as a embedded library,
-;; `reserve` will return nil at once if there is no job ready.
+;; BE CAUTION: this is only for server mode. <del>If you use clojalk as a embedded library,
+;; `reserve` will return nil at once if there is no job ready. </del>
 ;;
 (defcommand "reserve" [session]
   (reserve-with-timeout session nil))
@@ -380,10 +380,9 @@
             updated-job (assoc job :deadline_at deadline)]
         (schedule #(update-expired-job (:id job)) (:ttr job))
         (dosync
-          (if (= :reserved (:state updated-job)) ;; only reserved jobs could be touched
-            (do
-              (alter jobs assoc (:id updated-job) updated-job)
-              updated-job)))))))
+          (when (= :reserved (:state updated-job)) ;; only reserved jobs could be touched
+            (alter jobs assoc (:id updated-job) updated-job)
+            updated-job))))))
 
 ;; `watch` is a worker command to add tube into watching list.
 ;; Will create tube if it doesn't exist.
@@ -540,9 +539,9 @@
                                :reserver nil
                                :timeouts (inc (:timeouts job)))]
         (clojalk.wal/write-job updated-job false)
+        (swap! job-timeouts inc)
         (dosync
           (alter session update-in [:reserved_jobs] disj (:id updated-job))
-          (alter job-timeouts inc)
           (set-job-as-ready updated-job))))))
 
 ;; Enable a paused tube

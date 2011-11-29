@@ -138,4 +138,4 @@
 ;; A statistical field for job timeout count.
 ;; Note that we use a ref here because timeout check of jobs are inside a dosync block which
 ;; should be free of side-effort. If we use an atom here, it could be error in retry.
-(defonce job-timeouts (ref 0))
+(defonce job-timeouts (atom 0))
