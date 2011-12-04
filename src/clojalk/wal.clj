@@ -13,8 +13,6 @@
   (:import [java.nio ByteBuffer])
   (:import [java.io FileOutputStream]))
 
-(set! *warn-on-reflection* false)
-
 (def job-base-size 58)
 
 (defn- as-bytes [^String s]
@@ -144,7 +142,7 @@
     (delete-file f)))
 
 ;; default clojalk log directory, to be overwrite by configuration
-(def *clojalk-log-dir* "./binlogs/")
+(def ^:dynamic *clojalk-log-dir* "./binlogs/")
 
 ;; Test if a jobrec is a full record
 (defn is-full-record [j]
@@ -221,7 +219,7 @@
 
 ;; log files are split into several parts
 ;; this var is referenced only when initializing files
-(def *clojalk-log-count* 8)
+(def ^:dynamic *clojalk-log-count* 8)
 
 ;; log file streams
 (def log-files (ref []))
@@ -245,7 +243,7 @@
           (recur (inc i)))))))
   
 ;; A flag for enable/disable WAL
-(def *clojalk-log-enabled* false)
+(def ^:dynamic *clojalk-log-enabled* false)
 
 ;; A convenience function to write and flush stream
 (defn- stream-write [^java.io.OutputStream s data]

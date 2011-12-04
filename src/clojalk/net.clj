@@ -355,7 +355,7 @@
          (enqueue ch ["UNKNOWN_COMMAND"])))))
 
 ;; Default port, to be override with user configuration
-(def *clojalk-port* 12026)
+(def ^:dynamic *clojalk-port* 12026)
 
 ;; Start aleph TCP server.
 ;;
