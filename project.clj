@@ -1,4 +1,4 @@
-(defproject clojalk "1.0.0-SNAPSHOT"
+(defproject clojalk "1.1.0-SNAPSHOT"
   :description "A beanstalkd clone in clojure"
   :dependencies [[org.clojure/clojure "1.3.0"]
                  [org.clojure/tools.logging "0.2.3"]
